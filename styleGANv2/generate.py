@@ -32,7 +32,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate samples from the generator")
 
     parser.add_argument(
-        "--size", type=int, default=1024, help="output image size of the generator"
+        "--size", type=int, default=256, help="output image size of the generator"
     )
     parser.add_argument(
         "--sample",
