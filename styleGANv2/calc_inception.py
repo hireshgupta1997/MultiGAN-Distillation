@@ -125,6 +125,9 @@ if __name__ == "__main__":
     cov = np.cov(features, rowvar=False)
 
     name = os.path.splitext(os.path.basename(args.path))[0]
-
-    with open(f"inception_{name}.pkl", "wb") as f:
+    save_dir = "./inception_features"
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = f"{save_dir}/inception_{name}.pkl"
+    with open(save_path, "wb") as f:
         pickle.dump({"mean": mean, "cov": cov, "size": args.size, "path": args.path}, f)
+    print("Saved inception features at path:", save_path)
