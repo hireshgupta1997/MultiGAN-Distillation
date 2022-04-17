@@ -366,17 +366,17 @@ class Miner_semantic_conv(nn.Module):
         super().__init__()
         self.input = ConstantInput(code_dim)
         self.conv1 = EqualConv2d(code_dim, code_dim*4, 1, bias=False)
-        self.relu1 = FusedLeakyReLU(code_dim*4, bias=True) 
+        self.relu1 = FusedLeakyReLU(code_dim*4, bias=True)
         self.conv2 = EqualConv2d(code_dim*4, code_dim*16, 1, bias=False)
-        self.relu2 = FusedLeakyReLU(code_dim*16, bias=True) 
+        self.relu2 = FusedLeakyReLU(code_dim*16, bias=True)
         self.conv3 = EqualConv2d(code_dim*16, 512, 1, bias=False)
     def forward(self, input):
         output = self.input(input)
-        output = self.conv1(output) 
-        output = self.relu1(output) 
-        output = self.conv2(output) 
-        output = self.relu2(output) 
-        output = self.conv3(output) 
+        output = self.conv1(output)
+        output = self.relu1(output)
+        output = self.conv2(output)
+        output = self.relu2(output)
+        output = self.conv3(output)
         return output
 
 class Miner(nn.Module):
@@ -394,6 +394,7 @@ class Miner(nn.Module):
 
         output = [self.transform(i) for i in input]
         return output
+
 class Generator(nn.Module):
     def __init__(
         self,
@@ -557,10 +558,10 @@ class Generator(nn.Module):
         #    it is used for liner layers
         #    noise_fake = torch.randn(latent.shape[0], 4*4, device=latent.device)
         #    noise_fake = miner_semantic(noise_fake)# noise_1: [output4, output8, output16, output32]
-        #    noise[0] = noise_fake[0].view(noise_fake[0].shape[0], 1, 4, 4) 
-            out = miner_semantic(latent) 
+        #    noise[0] = noise_fake[0].view(noise_fake[0].shape[0], 1, 4, 4)
+            out = miner_semantic(latent)
         else:
-            out = self.input(latent) 
+            out = self.input(latent)
         out = self.conv1(out, latent[:, 0], noise=noise[0])
         skip = self.to_rgb1(out, latent[:, 1])
 
@@ -580,7 +581,7 @@ class Generator(nn.Module):
 
             i += 2
             #miner_index +=1
-            #if miner_index>=4: 
+            #if miner_index>=4:
             #    miner_index=8888
 
         image = skip
@@ -718,3 +719,39 @@ class Discriminator(nn.Module):
 
         return out
 
+
+def test_generator():
+    g_ema = Generator(
+        size=256, style_dim=512, n_mlp=8, channel_multiplier=2
+    )
+    gen_in = torch.rand(5, 512)
+    fake_image = g_ema([gen_in])[0]
+    print(fake_image.shape)
+
+
+def test_miner():
+    miner = Miner(512)
+    gen_in = torch.rand(5, 512)
+    out = miner(gen_in)
+
+    pass
+
+
+def test_generator_with_miner():
+    miner = Miner(512)
+    miner_conv = Miner_semantic_conv(code_dim=8, style_dim=512)
+    g_ema = Generator(
+        size=256, style_dim=512, n_mlp=8, channel_multiplier=2
+    )
+    gen_in = torch.randn(5, 512)
+
+    fake_image = g_ema(miner(gen_in), miner_semantic=miner_conv)[0]
+    print(fake_image.shape)
+
+    pass
+
+
+if __name__ == "__main__":
+    # test_miner()
+    # test_generator()
+    test_generator_with_miner()
