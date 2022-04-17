@@ -1,11 +1,11 @@
 import argparse
-import os
-import sys
-import pickle
 import math
+import os
+import pickle
+import sys
 
-import torch
 import numpy as np
+import torch
 from torchvision import utils
 
 from model import Generator, Discriminator
@@ -293,4 +293,3 @@ if __name__ == "__main__":
     utils.save_image(
         img_concat, name + ".png", nrow=n_sample, normalize=True, range=(-1, 1)
     )
-

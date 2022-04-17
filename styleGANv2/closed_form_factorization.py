@@ -2,7 +2,6 @@ import argparse
 
 import torch
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Extract factor/eigenvectors of latent spaces using closed form factorization"
@@ -30,4 +29,3 @@ if __name__ == "__main__":
     eigvec = torch.svd(W).V.to("cpu")
 
     torch.save({"ckpt": args.ckpt, "eigvec": eigvec}, args.out)
-

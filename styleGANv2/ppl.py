@@ -1,8 +1,8 @@
 import argparse
 
+import numpy as np
 import torch
 from torch.nn import functional as F
-import numpy as np
 from tqdm import tqdm
 
 import lpips
@@ -105,7 +105,7 @@ if __name__ == "__main__":
 
             if args.crop:
                 c = image.shape[2] // 8
-                image = image[:, :, c * 3 : c * 7, c * 2 : c * 6]
+                image = image[:, :, c * 3: c * 7, c * 2: c * 6]
 
             factor = image.shape[2] // 256
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
                 )
 
             dist = percept(image[::2], image[1::2]).view(image.shape[0] // 2) / (
-                args.eps ** 2
+                    args.eps ** 2
             )
             distances.append(dist.to("cpu").numpy())
 

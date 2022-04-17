@@ -2,12 +2,12 @@ import argparse
 
 import torch
 from torchvision import utils
-from model import Generator
 from tqdm import tqdm
+
+from model import Generator
 
 
 def generate(args, g_ema, device, mean_latent):
-
     with torch.no_grad():
         g_ema.eval()
         for i in tqdm(range(args.pics)):

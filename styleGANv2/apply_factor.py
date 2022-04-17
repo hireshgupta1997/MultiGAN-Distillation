@@ -5,7 +5,6 @@ from torchvision import utils
 
 from model import Generator
 
-
 if __name__ == "__main__":
     torch.set_grad_enabled(False)
 

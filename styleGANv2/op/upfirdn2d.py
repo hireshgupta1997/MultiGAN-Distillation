@@ -1,10 +1,9 @@
 import os
 
 import torch
-from torch.nn import functional as F
 from torch.autograd import Function
+from torch.nn import functional as F
 from torch.utils.cpp_extension import load
-
 
 module_path = os.path.dirname(__file__)
 upfirdn2d_op = load(
@@ -19,9 +18,8 @@ upfirdn2d_op = load(
 class UpFirDn2dBackward(Function):
     @staticmethod
     def forward(
-        ctx, grad_output, kernel, grad_kernel, up, down, pad, g_pad, in_size, out_size
+            ctx, grad_output, kernel, grad_kernel, up, down, pad, g_pad, in_size, out_size
     ):
-
         up_x, up_y = up
         down_x, down_y = down
         g_pad_x0, g_pad_x1, g_pad_y0, g_pad_y1 = g_pad
@@ -157,7 +155,7 @@ def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
 
 
 def upfirdn2d_native(
-    input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
+        input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
 ):
     _, channel, in_h, in_w = input.shape
     input = input.reshape(-1, in_h, in_w, 1)
@@ -173,11 +171,11 @@ def upfirdn2d_native(
         out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)]
     )
     out = out[
-        :,
-        max(-pad_y0, 0) : out.shape[1] - max(-pad_y1, 0),
-        max(-pad_x0, 0) : out.shape[2] - max(-pad_x1, 0),
-        :,
-    ]
+          :,
+          max(-pad_y0, 0): out.shape[1] - max(-pad_y1, 0),
+          max(-pad_x0, 0): out.shape[2] - max(-pad_x1, 0),
+          :,
+          ]
 
     out = out.permute(0, 3, 1, 2)
     out = out.reshape(

@@ -3,10 +3,10 @@ import math
 import os
 
 import torch
+from PIL import Image
 from torch import optim
 from torch.nn import functional as F
 from torchvision import transforms
-from PIL import Image
 from tqdm import tqdm
 
 import lpips
@@ -21,9 +21,9 @@ def noise_regularize(noises):
 
         while True:
             loss = (
-                loss
-                + (noise * torch.roll(noise, shifts=1, dims=3)).mean().pow(2)
-                + (noise * torch.roll(noise, shifts=1, dims=2)).mean().pow(2)
+                    loss
+                    + (noise * torch.roll(noise, shifts=1, dims=3)).mean().pow(2)
+                    + (noise * torch.roll(noise, shifts=1, dims=2)).mean().pow(2)
             )
 
             if size <= 8:
@@ -61,14 +61,14 @@ def latent_noise(latent, strength):
 def make_image(tensor):
     return (
         tensor.detach()
-        .clamp_(min=-1, max=1)
-        .add(1)
-        .div_(2)
-        .mul(255)
-        .type(torch.uint8)
-        .permute(0, 2, 3, 1)
-        .to("cpu")
-        .numpy()
+            .clamp_(min=-1, max=1)
+            .add(1)
+            .div_(2)
+            .mul(255)
+            .type(torch.uint8)
+            .permute(0, 2, 3, 1)
+            .to("cpu")
+            .numpy()
     )
 
 
@@ -233,7 +233,7 @@ if __name__ == "__main__":
     for i, input_name in enumerate(args.files):
         noise_single = []
         for noise in noises:
-            noise_single.append(noise[i : i + 1])
+            noise_single.append(noise[i: i + 1])
 
         result_file[input_name] = {
             "img": img_gen[i],

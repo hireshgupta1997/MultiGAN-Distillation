@@ -1,12 +1,9 @@
 import math
 import random
-import functools
-import operator
 
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.autograd import Function
 
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
 
@@ -93,7 +90,7 @@ class Blur(nn.Module):
 
 class EqualConv2d(nn.Module):
     def __init__(
-        self, in_channel, out_channel, kernel_size, stride=1, padding=0, bias=True
+            self, in_channel, out_channel, kernel_size, stride=1, padding=0, bias=True
     ):
         super().__init__()
 
@@ -131,7 +128,7 @@ class EqualConv2d(nn.Module):
 
 class EqualLinear(nn.Module):
     def __init__(
-        self, in_dim, out_dim, bias=True, bias_init=0, lr_mul=1, activation=None
+            self, in_dim, out_dim, bias=True, bias_init=0, lr_mul=1, activation=None
     ):
         super().__init__()
 
@@ -168,15 +165,15 @@ class EqualLinear(nn.Module):
 
 class ModulatedConv2d(nn.Module):
     def __init__(
-        self,
-        in_channel,
-        out_channel,
-        kernel_size,
-        style_dim,
-        demodulate=True,
-        upsample=False,
-        downsample=False,
-        blur_kernel=[1, 3, 3, 1],
+            self,
+            in_channel,
+            out_channel,
+            kernel_size,
+            style_dim,
+            demodulate=True,
+            upsample=False,
+            downsample=False,
+            blur_kernel=[1, 3, 3, 1],
     ):
         super().__init__()
 
@@ -294,14 +291,14 @@ class ConstantInput(nn.Module):
 
 class StyledConv(nn.Module):
     def __init__(
-        self,
-        in_channel,
-        out_channel,
-        kernel_size,
-        style_dim,
-        upsample=False,
-        blur_kernel=[1, 3, 3, 1],
-        demodulate=True,
+            self,
+            in_channel,
+            out_channel,
+            kernel_size,
+            style_dim,
+            upsample=False,
+            blur_kernel=[1, 3, 3, 1],
+            demodulate=True,
     ):
         super().__init__()
 
@@ -349,6 +346,8 @@ class ToRGB(nn.Module):
             out = out + skip
 
         return out
+
+
 class ToOutput_miner_semantic(nn.Module):
     def __init__(self, in_channel, out_channel, style_dim, upsample=True, blur_kernel=[1, 3, 3, 1]):
         super().__init__()
@@ -361,15 +360,17 @@ class ToOutput_miner_semantic(nn.Module):
         out = out + self.bias
         return out
 
+
 class Miner_semantic_conv(nn.Module):
     def __init__(self, code_dim=8, style_dim=512, blur_kernel=[1, 3, 3, 1]):
         super().__init__()
         self.input = ConstantInput(code_dim)
-        self.conv1 = EqualConv2d(code_dim, code_dim*4, 1, bias=False)
-        self.relu1 = FusedLeakyReLU(code_dim*4, bias=True)
-        self.conv2 = EqualConv2d(code_dim*4, code_dim*16, 1, bias=False)
-        self.relu2 = FusedLeakyReLU(code_dim*16, bias=True)
-        self.conv3 = EqualConv2d(code_dim*16, 512, 1, bias=False)
+        self.conv1 = EqualConv2d(code_dim, code_dim * 4, 1, bias=False)
+        self.relu1 = FusedLeakyReLU(code_dim * 4, bias=True)
+        self.conv2 = EqualConv2d(code_dim * 4, code_dim * 16, 1, bias=False)
+        self.relu2 = FusedLeakyReLU(code_dim * 16, bias=True)
+        self.conv3 = EqualConv2d(code_dim * 16, 512, 1, bias=False)
+
     def forward(self, input):
         output = self.input(input)
         output = self.conv1(output)
@@ -378,6 +379,7 @@ class Miner_semantic_conv(nn.Module):
         output = self.relu2(output)
         output = self.conv3(output)
         return output
+
 
 class Miner(nn.Module):
     def __init__(self, code_dim=512):
@@ -395,15 +397,16 @@ class Miner(nn.Module):
         output = [self.transform(i) for i in input]
         return output
 
+
 class Generator(nn.Module):
     def __init__(
-        self,
-        size,
-        style_dim,
-        n_mlp,
-        channel_multiplier=2,
-        blur_kernel=[1, 3, 3, 1],
-        lr_mlp=0.01,
+            self,
+            size,
+            style_dim,
+            n_mlp,
+            channel_multiplier=2,
+            blur_kernel=[1, 3, 3, 1],
+            lr_mlp=0.01,
     ):
         super().__init__()
 
@@ -504,16 +507,16 @@ class Generator(nn.Module):
         return self.style(input)
 
     def forward(
-        self,
-        styles,
-        return_latents=False,
-        inject_index=None,
-        truncation=1,
-        truncation_latent=None,
-        input_is_latent=False,
-        noise=None,
-        randomize_noise=True,
-        miner_semantic=None,
+            self,
+            styles,
+            return_latents=False,
+            inject_index=None,
+            truncation=1,
+            truncation_latent=None,
+            input_is_latent=False,
+            noise=None,
+            randomize_noise=True,
+            miner_semantic=None,
     ):
         if not input_is_latent:
             styles = [self.style(s) for s in styles]
@@ -554,11 +557,11 @@ class Generator(nn.Module):
 
             latent = torch.cat([latent, latent2], 1)
 
-        if  miner_semantic is not None:# size is 4
-        #    it is used for liner layers
-        #    noise_fake = torch.randn(latent.shape[0], 4*4, device=latent.device)
-        #    noise_fake = miner_semantic(noise_fake)# noise_1: [output4, output8, output16, output32]
-        #    noise[0] = noise_fake[0].view(noise_fake[0].shape[0], 1, 4, 4)
+        if miner_semantic is not None:  # size is 4
+            #    it is used for liner layers
+            #    noise_fake = torch.randn(latent.shape[0], 4*4, device=latent.device)
+            #    noise_fake = miner_semantic(noise_fake)# noise_1: [output4, output8, output16, output32]
+            #    noise[0] = noise_fake[0].view(noise_fake[0].shape[0], 1, 4, 4)
             out = miner_semantic(latent)
         else:
             out = self.input(latent)
@@ -568,10 +571,10 @@ class Generator(nn.Module):
         i = 1
         miner_index = 1
         for conv1, conv2, noise1, noise2, to_rgb in zip(
-            self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
+                self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
         ):
             # it is used for miner_semantic linear layers
-            #if  miner_semantic is not None and  miner_index<8888:# size is 4X
+            # if  miner_semantic is not None and  miner_index<8888:# size is 4X
             #    size  =  4*(2**(miner_index)) # 4 is the base size, then we double the size
             #    noise1 = noise_fake[miner_index].view(out.shape[0], 1, size, size)
             #    noise2 = noise_fake[miner_index].view(out.shape[0], 1, size, size)
@@ -580,8 +583,8 @@ class Generator(nn.Module):
             skip = to_rgb(out, latent[:, i + 2], skip)
 
             i += 2
-            #miner_index +=1
-            #if miner_index>=4:
+            # miner_index +=1
+            # if miner_index>=4:
             #    miner_index=8888
 
         image = skip
@@ -595,14 +598,14 @@ class Generator(nn.Module):
 
 class ConvLayer(nn.Sequential):
     def __init__(
-        self,
-        in_channel,
-        out_channel,
-        kernel_size,
-        downsample=False,
-        blur_kernel=[1, 3, 3, 1],
-        bias=True,
-        activate=True,
+            self,
+            in_channel,
+            out_channel,
+            kernel_size,
+            downsample=False,
+            blur_kernel=[1, 3, 3, 1],
+            bias=True,
+            activate=True,
     ):
         layers = []
 

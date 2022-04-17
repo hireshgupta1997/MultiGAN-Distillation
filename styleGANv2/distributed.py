@@ -1,9 +1,7 @@
-import math
 import pickle
 
 import torch
 from torch import distributed as dist
-from torch.utils.data.sampler import Sampler
 
 
 def get_rank():
@@ -56,7 +54,7 @@ def reduce_sum(tensor):
 
 def gather_grad(params):
     world_size = get_world_size()
-    
+
     if world_size == 1:
         return
 

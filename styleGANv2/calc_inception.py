@@ -1,18 +1,18 @@
 import argparse
-import pickle
 import os
+import pickle
 
+import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from torchvision.models import inception_v3, Inception3
-import numpy as np
+from torchvision.models import Inception3
 from tqdm import tqdm
 
-from inception import InceptionV3
 from dataset import MultiResolutionDataset
+from inception import InceptionV3
 
 
 class Inception3Feature(Inception3):

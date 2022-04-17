@@ -29,15 +29,16 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 import numpy as np
 import torch
-from scipy import linalg
 from imageio import imread
+from scipy import linalg
 from torch.nn.functional import adaptive_avg_pool2d
 
 try:
     from tqdm import tqdm
 except ImportError:
     # If not tqdm is not available, provide a mock version of it
-    def tqdm(x): return x
+    def tqdm(x):
+        return x
 
 from metric.inception import InceptionV3
 

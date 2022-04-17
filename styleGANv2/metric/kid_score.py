@@ -1,8 +1,6 @@
 # https://github.com/mbinkowski/MMD-GAN/blob/master/gan/compute_scores.py
 """Calculates the Kernel Inception Distance (KID) to evalulate GANs
 """
-import os
-import sys
 import numpy as np
 from sklearn.metrics.pairwise import polynomial_kernel
 
@@ -91,11 +89,11 @@ def _mmd2_and_variance(K_XX, K_XY, K_YY, unit_diagonal=False,
                 - 2 * K_XY_sum / (m * m))
     else:
         assert mmd_est in {'unbiased', 'u-statistic'}
-        mmd2 = (Kt_XX_sum + Kt_YY_sum) / (m * (m-1))
+        mmd2 = (Kt_XX_sum + Kt_YY_sum) / (m * (m - 1))
         if mmd_est == 'unbiased':
             mmd2 -= 2 * K_XY_sum / (m * m)
         else:
-            mmd2 -= 2 * (K_XY_sum - np.trace(K_XY)) / (m * (m-1))
+            mmd2 -= 2 * (K_XY_sum - np.trace(K_XY)) / (m * (m - 1))
 
     if not ret_var:
         return mmd2
@@ -110,26 +108,24 @@ def _mmd2_and_variance(K_XX, K_XY, K_YY, unit_diagonal=False,
     m1 = m - 1
     m2 = m - 2
     zeta1_est = (
-        1 / (m * m1 * m2) * (
+            1 / (m * m1 * m2) * (
             _sqn(Kt_XX_sums) - Kt_XX_2_sum + _sqn(Kt_YY_sums) - Kt_YY_2_sum)
-        - 1 / (m * m1)**2 * (Kt_XX_sum**2 + Kt_YY_sum**2)
-        + 1 / (m * m * m1) * (
-            _sqn(K_XY_sums_1) + _sqn(K_XY_sums_0) - 2 * K_XY_2_sum)
-        - 2 / m**4 * K_XY_sum**2
-        - 2 / (m * m * m1) * (dot_XX_XY + dot_YY_YX)
-        + 2 / (m**3 * m1) * (Kt_XX_sum + Kt_YY_sum) * K_XY_sum
+            - 1 / (m * m1) ** 2 * (Kt_XX_sum ** 2 + Kt_YY_sum ** 2)
+            + 1 / (m * m * m1) * (
+                    _sqn(K_XY_sums_1) + _sqn(K_XY_sums_0) - 2 * K_XY_2_sum)
+            - 2 / m ** 4 * K_XY_sum ** 2
+            - 2 / (m * m * m1) * (dot_XX_XY + dot_YY_YX)
+            + 2 / (m ** 3 * m1) * (Kt_XX_sum + Kt_YY_sum) * K_XY_sum
     )
     zeta2_est = (
-        1 / (m * m1) * (Kt_XX_2_sum + Kt_YY_2_sum)
-        - 1 / (m * m1)**2 * (Kt_XX_sum**2 + Kt_YY_sum**2)
-        + 2 / (m * m) * K_XY_2_sum
-        - 2 / m**4 * K_XY_sum**2
-        - 4 / (m * m * m1) * (dot_XX_XY + dot_YY_YX)
-        + 4 / (m**3 * m1) * (Kt_XX_sum + Kt_YY_sum) * K_XY_sum
+            1 / (m * m1) * (Kt_XX_2_sum + Kt_YY_2_sum)
+            - 1 / (m * m1) ** 2 * (Kt_XX_sum ** 2 + Kt_YY_sum ** 2)
+            + 2 / (m * m) * K_XY_2_sum
+            - 2 / m ** 4 * K_XY_sum ** 2
+            - 4 / (m * m * m1) * (dot_XX_XY + dot_YY_YX)
+            + 4 / (m ** 3 * m1) * (Kt_XX_sum + Kt_YY_sum) * K_XY_sum
     )
     var_est = (4 * (var_at_m - 2) / (var_at_m * (var_at_m - 1)) * zeta1_est
                + 2 / (var_at_m * (var_at_m - 1)) * zeta2_est)
 
     return mmd2, var_est
-
-

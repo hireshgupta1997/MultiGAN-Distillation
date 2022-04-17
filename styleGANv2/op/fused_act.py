@@ -2,10 +2,9 @@ import os
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 from torch.autograd import Function
+from torch.nn import functional as F
 from torch.utils.cpp_extension import load
-
 
 module_path = os.path.dirname(__file__)
 fused = load(
@@ -106,10 +105,10 @@ def fused_leaky_relu(input, bias=None, negative_slope=0.2, scale=2 ** 0.5):
         if bias is not None:
             rest_dim = [1] * (input.ndim - bias.ndim - 1)
             return (
-                F.leaky_relu(
-                    input + bias.view(1, bias.shape[0], *rest_dim), negative_slope=0.2
-                )
-                * scale
+                    F.leaky_relu(
+                        input + bias.view(1, bias.shape[0], *rest_dim), negative_slope=0.2
+                    )
+                    * scale
             )
 
         else:

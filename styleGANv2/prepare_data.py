@@ -1,13 +1,13 @@
 import argparse
-from io import BytesIO
 import multiprocessing
 from functools import partial
+from io import BytesIO
 
-from PIL import Image
 import lmdb
-from tqdm import tqdm
+from PIL import Image
 from torchvision import datasets
 from torchvision.transforms import functional as trans_fn
+from tqdm import tqdm
 
 
 def resize_and_convert(img, size, resample, quality=100):
@@ -21,7 +21,7 @@ def resize_and_convert(img, size, resample, quality=100):
 
 
 def resize_multiple(
-    img, sizes=(128, 256, 512, 1024), resample=Image.LANCZOS, quality=100
+        img, sizes=(128, 256, 512, 1024), resample=Image.LANCZOS, quality=100
 ):
     imgs = []
 
@@ -41,7 +41,7 @@ def resize_worker(img_file, sizes, resample):
 
 
 def prepare(
-    env, dataset, n_worker, sizes=(128, 256, 512, 1024), resample=Image.LANCZOS
+        env, dataset, n_worker, sizes=(128, 256, 512, 1024), resample=Image.LANCZOS
 ):
     resize_fn = partial(resize_worker, sizes=sizes, resample=resample)
 

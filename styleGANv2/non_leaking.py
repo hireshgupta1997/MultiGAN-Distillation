@@ -295,28 +295,28 @@ def affine_grid(grid, mat):
 
 def get_padding(G, height, width):
     extreme = (
-        G[:, :2, :]
-        @ torch.tensor([(-1.0, -1, 1), (-1, 1, 1), (1, -1, 1), (1, 1, 1)]).t()
+            G[:, :2, :]
+            @ torch.tensor([(-1.0, -1, 1), (-1, 1, 1), (1, -1, 1), (1, 1, 1)]).t()
     )
 
     size = torch.tensor((width, height))
 
     pad_low = (
         ((extreme.min(-1).values + 1) * size)
-        .clamp(max=0)
-        .abs()
-        .ceil()
-        .max(0)
-        .values.to(torch.int64)
-        .tolist()
+            .clamp(max=0)
+            .abs()
+            .ceil()
+            .max(0)
+            .values.to(torch.int64)
+            .tolist()
     )
     pad_high = (
         (extreme.max(-1).values * size - size)
-        .clamp(min=0)
-        .ceil()
-        .max(0)
-        .values.to(torch.int64)
-        .tolist()
+            .clamp(min=0)
+            .ceil()
+            .max(0)
+            .values.to(torch.int64)
+            .tolist()
     )
 
     return pad_low[0], pad_high[0], pad_low[1], pad_high[1]

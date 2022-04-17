@@ -1,20 +1,20 @@
 import argparse
+import math
 import pickle
 
-import torch
-from torch import nn
 import numpy as np
+import torch
 from scipy import linalg
+from torch import nn
 from tqdm import tqdm
 
-from model import Generator
 from calc_inception import load_patched_inception_v3
-import math
+from model import Generator
 
 
 @torch.no_grad()
 def extract_feature_from_samples(
-    generator, inception, truncation, truncation_latent, batch_size, n_sample, device
+        generator, inception, truncation, truncation_latent, batch_size, n_sample, device
 ):
     n_batch = math.ceil(n_sample / batch_size)
     features = []
