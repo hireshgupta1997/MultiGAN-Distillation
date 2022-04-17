@@ -9,24 +9,23 @@ from tqdm import tqdm
 
 from model import Generator
 from calc_inception import load_patched_inception_v3
+import math
 
 
 @torch.no_grad()
 def extract_feature_from_samples(
     generator, inception, truncation, truncation_latent, batch_size, n_sample, device
 ):
-    n_batch = n_sample // batch_size
-    resid = n_sample - (n_batch * batch_size)
-    batch_sizes = [batch_size] * n_batch + [resid]
+    n_batch = math.ceil(n_sample / batch_size)
     features = []
 
-    for batch in tqdm(batch_sizes):
-        latent = torch.randn(batch, 512, device=device)
-        img, _ = g([latent], truncation=truncation, truncation_latent=truncation_latent)
+    for i in tqdm(range(n_batch)):
+        latent = torch.randn(batch_size, 512, device=device)
+        img, _ = generator([latent], truncation=truncation, truncation_latent=truncation_latent)
         feat = inception(img)[0].view(img.shape[0], -1)
         features.append(feat.to("cpu"))
 
-    features = torch.cat(features, 0)
+    features = torch.cat(features, 0)[:n_sample]
 
     return features
 
