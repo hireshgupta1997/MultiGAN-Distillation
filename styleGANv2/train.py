@@ -37,15 +37,18 @@ def evaluate(args,real_acts=None):
     fake_images, fake_acts = get_fake_images_and_acts(inception, g_ema, miner, miner_semantic, code_size=args.latent, sample_num=args.sample_num, batch_size=8,device=device)
     # Real:
     if real_acts is  None:
+        print("Computing real_acts for FID calculation..")
         acts=[]
         pbar = tqdm(total=args.test_number)
-        for  real_image in loader_test:
+        for i, real_image in enumerate(loader_test):
              real_image=real_image.cuda()
              with torch.no_grad():
                  out = inception(real_image)
                  out = out[0].squeeze(-1).squeeze(-1)
              acts.append(out.cpu().numpy())  # numpy
              pbar.update(len(real_image))  # numpy
+             if i > args.test_number:
+                 break
         real_acts = np.concatenate(acts, axis=0)  # N x d    
     fid = compute_fid(real_acts, fake_acts)
 	
@@ -335,7 +338,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                 )
 
                         #f"sample/{str(i).zfill(6)}.png",
-            if i % 100 == 0:
+            if i % 1000 == 0:
                 fid, _ = evaluate(args, real_acts=real_acts)
                 print('------fid:%f-------'%fid)
                 if fid<best_fid: 
