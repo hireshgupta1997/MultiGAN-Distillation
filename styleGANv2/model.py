@@ -545,10 +545,6 @@ class Generator(nn.Module):
             latent = torch.cat([latent, latent2], 1)
 
         if miner_semantic is not None:  # size is 4
-            #    it is used for liner layers
-            #    noise_fake = torch.randn(latent.shape[0], 4*4, device=latent.device)
-            #    noise_fake = miner_semantic(noise_fake)# noise_1: [output4, output8, output16, output32]
-            #    noise[0] = noise_fake[0].view(noise_fake[0].shape[0], 1, 4, 4)
             out = miner_semantic(latent)
         else:
             out = self.input(latent)
@@ -556,23 +552,14 @@ class Generator(nn.Module):
         skip = self.to_rgb1(out, latent[:, 1])
 
         i = 1
-        miner_index = 1
         for conv1, conv2, noise1, noise2, to_rgb in zip(
                 self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
         ):
-            # it is used for miner_semantic linear layers
-            # if  miner_semantic is not None and  miner_index<8888:# size is 4X
-            #    size  =  4*(2**(miner_index)) # 4 is the base size, then we double the size
-            #    noise1 = noise_fake[miner_index].view(out.shape[0], 1, size, size)
-            #    noise2 = noise_fake[miner_index].view(out.shape[0], 1, size, size)
             out = conv1(out, latent[:, i], noise=noise1)
             out = conv2(out, latent[:, i + 1], noise=noise2)
             skip = to_rgb(out, latent[:, i + 2], skip)
 
             i += 2
-            # miner_index +=1
-            # if miner_index>=4:
-            #    miner_index=8888
 
         image = skip
 
@@ -744,4 +731,4 @@ def test_generator_with_miner():
 if __name__ == "__main__":
     # test_miner()
     # test_generator()
-    test_generator_with_miner()
+    # test_generator_with_miner()
