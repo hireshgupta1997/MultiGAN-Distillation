@@ -1,7 +1,8 @@
 import argparse
 import math
-import os
 import random
+import os
+
 
 import numpy as np
 import torch
@@ -14,6 +15,7 @@ from tqdm import tqdm
 
 from metric.inception import InceptionV3
 from metric.metric import get_fake_images_and_acts, compute_fid
+
 
 try:
     import wandb
@@ -343,11 +345,15 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     }
                 )
 
-                # f"sample/{str(i).zfill(6)}.png",
-            if i % 1000 == 0:
+            if i % 2000 == 0:
                 fid, _ = evaluate(args, real_acts=real_acts)
-                print('------fid:%f-------' % fid)
-                if fid < best_fid:
+                wandb.log(
+                    {
+                        "FID": fid
+                    }
+                )
+                print('------fid:%f-------'%fid)
+                if fid<best_fid: 
                     torch.save(
                         {
                             "miner": miner.state_dict(),
@@ -402,6 +408,36 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     },
                     '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6)),
                 )
+
+
+def test(args):
+    fid, _ = evaluate(args)
+    g_ema.eval()
+    miner.eval()
+    miner_semantic.eval()
+    with torch.no_grad():
+        
+        sample_z = torch.randn(args.n_sample, args.latent, device=device)
+        sample, _ = g_ema(miner(sample_z), miner_semantic=miner_semantic)
+
+        utils.save_image(
+            g_ema([sample_z])[0],
+            '%s/%s_w_o_miner.png'%(os.path.join(args.output_dir, 'samples_best'), str(i).zfill(6)),
+            nrow=int(args.n_sample ** 0.5),
+            normalize=True,
+            range=(-1, 1),
+        )
+
+        utils.save_image(
+            sample,
+            '%s/%s.png'%(os.path.join(args.output_dir, 'samples_best'), str(i).zfill(6)),
+            nrow=int(args.n_sample ** 0.5),
+            normalize=True,
+            range=(-1, 1),
+        )
+
+        with open(os.path.join(args.output_dir, 'fid_best.txt'), 'w') as f:
+            f.write('{}\n'.format(fid))
 
 
 if __name__ == "__main__":
@@ -514,6 +550,11 @@ if __name__ == "__main__":
         default=256,
         help="probability update interval of the adaptive augmentation",
     )
+    parser.add_argument(
+        "--infer_only",
+        action='store_true',
+        help="use this flag to only infer and not train"
+    )
 
     args = parser.parse_args()
 
@@ -581,10 +622,19 @@ if __name__ == "__main__":
         except ValueError:
             pass
 
-        generator.load_state_dict(ckpt["g"],
-                                  strict=False)  # I add strict=False, since the provided model is little different. And we add two miner networks
-        discriminator.load_state_dict(ckpt["d"])
-        g_ema.load_state_dict(ckpt["g_ema"], strict=False)  # I add strict=False
+        if 'g' in ckpt:
+            generator.load_state_dict(ckpt["g"], strict=False)#  I add strict=False, since the provided model is little different. And we add two miner networks
+        elif 'g_ema' in ckpt:
+            generator.load_state_dict(ckpt['g_ema'])
+        else:
+            print('No generator found. Randomly initializing.')
+        
+        if 'd' in ckpt:
+            discriminator.load_state_dict(ckpt["d"])
+        else:
+            print('No discriminator found. Randomly initializing.')
+        
+        g_ema.load_state_dict(ckpt["g_ema"], strict=False)#  I add strict=False
 
         # g_optim.load_state_dict(ckpt["g_optim"])
         # d_optim.load_state_dict(ckpt["d_optim"])
@@ -631,7 +681,7 @@ if __name__ == "__main__":
     )
 
     dataset = MultiResolutionDataset(args.path, transform, args.size)
-    dataset_test = MultiResolutionDataset(args.path, transform_test, args.size)  # here we can give the test data path
+    dataset_test = MultiResolutionDataset(args.path_test, transform_test, args.size)#here we can give the test data path 
     loader = data.DataLoader(
         dataset,
         batch_size=args.batch,
@@ -645,7 +695,11 @@ if __name__ == "__main__":
     )
 
     if get_rank() == 0 and wandb is not None and args.wandb:
-        wandb.init(project="stylegan 2", entity="gan-gyan")
+        wandb.init(project="stylegan 2", entity='gan-gyan')
     inception = nn.DataParallel(InceptionV3()).cuda()
     inception.eval()
-    train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, device, miner, miner_semantic)
+
+    if args.infer_only:
+        test(args)
+    else:
+        train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, device, miner, miner_semantic)
