@@ -16,11 +16,6 @@ from metric.metric import get_fake_images_and_acts, compute_fid
 
 from model import Generator, Discriminator, Miner, MinerSemanticConv
 from dataset import MultiResolutionDataset
-from distributed import (
-    reduce_loss_dict,
-    reduce_sum,
-    get_world_size,
-)
 from non_leaking import augment, AdaptiveAugment
 
 from loss_utils import d_logistic_loss, d_r1_loss, g_nonsaturating_loss, g_path_regularize
@@ -205,24 +200,20 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
 
             g_optim.step()
 
-            mean_path_length_avg = (
-                    reduce_sum(mean_path_length).item() / get_world_size()
-            )
+            mean_path_length_avg = mean_path_length.item()
 
         loss_dict["path"] = path_loss
         loss_dict["path_length"] = path_lengths.mean()
 
         accumulate(g_ema, g_module, accum)
 
-        loss_reduced = reduce_loss_dict(loss_dict)
-
-        d_loss_val = loss_reduced["d"].mean().item()
-        g_loss_val = loss_reduced["g"].mean().item()
-        r1_val = loss_reduced["r1"].mean().item()
-        path_loss_val = loss_reduced["path"].mean().item()
-        real_score_val = loss_reduced["real_score"].mean().item()
-        fake_score_val = loss_reduced["fake_score"].mean().item()
-        path_length_val = loss_reduced["path_length"].mean().item()
+        d_loss_val = loss_dict["d"].mean().item()
+        g_loss_val = loss_dict["g"].mean().item()
+        r1_val = loss_dict["r1"].mean().item()
+        path_loss_val = loss_dict["path"].mean().item()
+        real_score_val = loss_dict["real_score"].mean().item()
+        fake_score_val = loss_dict["fake_score"].mean().item()
+        path_length_val = loss_dict["path_length"].mean().item()
 
         pbar.set_description(
             (
@@ -250,11 +241,8 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
 
         if i % 2000 == 0: #
             fid, _ = evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device, real_acts=real_acts)
-            wandb.log(
-                {
-                    "FID": fid
-                }
-            )
+            if args.wandb:
+                wandb.log({"FID": fid})
             print('------fid:%f-------'%fid)
             if fid<best_fid:
                 torch.save(
