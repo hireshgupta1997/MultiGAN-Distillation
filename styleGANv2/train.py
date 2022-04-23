@@ -3,10 +3,8 @@ import math
 import random
 import os
 
-
 import numpy as np
 import torch
-import torch.distributed as dist
 from torch import nn, autograd, optim
 from torch.nn import functional as F
 from torch.utils import data
@@ -19,11 +17,10 @@ from metric.metric import get_fake_images_and_acts, compute_fid
 
 try:
     import wandb
-
 except ImportError:
     wandb = None
 
-from model import Generator, Discriminator, Miner, Miner_semantic_conv
+from model import Generator, Discriminator, Miner, MinerSemanticConv
 from dataset import MultiResolutionDataset
 from distributed import (
     get_rank,
@@ -54,7 +51,7 @@ def evaluate(args, real_acts=None):
             pbar.update(len(real_image))  # numpy
             if i > args.test_number:
                 break
-        real_acts = np.concatenate(acts, axis=0)  # N x d    
+        real_acts = np.concatenate(acts, axis=0)  # N x d
     fid = compute_fid(real_acts, fake_acts)
 
     miner.train()
@@ -577,8 +574,8 @@ if __name__ == "__main__":
 
     args.start_iter = 0
 
-    miner = Miner(args.latent).to(device)
-    miner_semantic = Miner_semantic_conv(code_dim=8, style_dim=args.latent).to(device)  # using conv 
+    miner = Miner(args.latent).to(device) #
+    miner_semantic = MinerSemanticConv(code_dim=8, style_dim=args.latent).to(device) # # using conv
 
     generator = Generator(
         args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier

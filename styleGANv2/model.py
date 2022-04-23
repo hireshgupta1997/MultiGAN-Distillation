@@ -348,20 +348,7 @@ class ToRGB(nn.Module):
         return out
 
 
-class ToOutput_miner_semantic(nn.Module):
-    def __init__(self, in_channel, out_channel, style_dim, upsample=True, blur_kernel=[1, 3, 3, 1]):
-        super().__init__()
-
-        self.conv = ModulatedConv2d(in_channel, out_channel, 1, style_dim, demodulate=False)
-        self.bias = nn.Parameter(torch.zeros(1, out_channel, 1, 1))
-
-    def forward(self, input, style, skip=None):
-        out = self.conv(input, style)
-        out = out + self.bias
-        return out
-
-
-class Miner_semantic_conv(nn.Module):
+class MinerSemanticConv(nn.Module):
     def __init__(self, code_dim=8, style_dim=512, blur_kernel=[1, 3, 3, 1]):
         super().__init__()
         self.input = ConstantInput(code_dim)
@@ -742,7 +729,7 @@ def test_miner():
 
 def test_generator_with_miner():
     miner = Miner(512)
-    miner_conv = Miner_semantic_conv(code_dim=8, style_dim=512)
+    miner_conv = MinerSemanticConv(code_dim=8, style_dim=512)
     g_ema = Generator(
         size=256, style_dim=512, n_mlp=8, channel_multiplier=2
     )
