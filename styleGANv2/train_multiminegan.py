@@ -17,8 +17,6 @@ from metric.metric import get_fake_images_and_acts, compute_fid
 from model import Generator, Discriminator, Miner, MinerSemanticConv
 from dataset import MultiResolutionDataset
 from distributed import (
-    get_rank,
-    synchronize,
     reduce_loss_dict,
     reduce_sum,
     get_world_size,
@@ -80,9 +78,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
     loader = sample_data(loader)
 
     pbar = range(args.iter)
-
-    if get_rank() == 0:
-        pbar = tqdm(pbar, initial=args.start_iter, dynamic_ncols=True, smoothing=0.01)
+    pbar = tqdm(pbar, initial=args.start_iter, dynamic_ncols=True, smoothing=0.01)
 
     mean_path_length = 0
 
@@ -94,17 +90,10 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
     mean_path_length_avg = 0
     loss_dict = {}
 
-    if args.distributed:
-        g_module = generator.module
-        d_module = discriminator.module
-        miner_module = miner.module #
-        miner_semantic_module = miner_semantic.module #
-
-    else:
-        g_module = generator
-        d_module = discriminator
-        miner_module = miner #
-        miner_semantic_module = miner_semantic #
+    g_module = generator
+    d_module = discriminator
+    miner_module = miner #
+    miner_semantic_module = miner_semantic #
 
     accum = 0.5 ** (32 / (10 * 1000))
     ada_aug_p = args.augment_p if args.augment_p > 0 else 0.0
@@ -235,84 +224,44 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         fake_score_val = loss_reduced["fake_score"].mean().item()
         path_length_val = loss_reduced["path_length"].mean().item()
 
-        if get_rank() == 0:
-            pbar.set_description(
-                (
-                    f"d: {d_loss_val:.4f}; g: {g_loss_val:.4f}; r1: {r1_val:.4f}; "
-                    f"path: {path_loss_val:.4f}; mean path: {mean_path_length_avg:.4f}; "
-                    f"augment: {ada_aug_p:.4f}"
-                )
+        pbar.set_description(
+            (
+                f"d: {d_loss_val:.4f}; g: {g_loss_val:.4f}; r1: {r1_val:.4f}; "
+                f"path: {path_loss_val:.4f}; mean path: {mean_path_length_avg:.4f}; "
+                f"augment: {ada_aug_p:.4f}"
+            )
+        )
+
+        if args.wandb:
+            wandb.log(
+                {
+                    "Generator": g_loss_val,
+                    "Discriminator": d_loss_val,
+                    "Augment": ada_aug_p,
+                    "Rt": r_t_stat,
+                    "R1": r1_val,
+                    "Path Length Regularization": path_loss_val,
+                    "Mean Path Length": mean_path_length,
+                    "Real Score": real_score_val,
+                    "Fake Score": fake_score_val,
+                    "Path Length": path_length_val,
+                }
             )
 
-            if wandb and args.wandb:
-                wandb.log(
-                    {
-                        "Generator": g_loss_val,
-                        "Discriminator": d_loss_val,
-                        "Augment": ada_aug_p,
-                        "Rt": r_t_stat,
-                        "R1": r1_val,
-                        "Path Length Regularization": path_loss_val,
-                        "Mean Path Length": mean_path_length,
-                        "Real Score": real_score_val,
-                        "Fake Score": fake_score_val,
-                        "Path Length": path_length_val,
-                    }
-                )
-
-            if i % 2000 == 0: #
-                fid, _ = evaluate(args, real_acts=real_acts)
-                wandb.log(
-                    {
-                        "FID": fid
-                    }
-                )
-                print('------fid:%f-------'%fid)
-                if fid<best_fid:
-                    torch.save(
-                        {
-                            "miner": miner.state_dict(),
-                            "miner_semantic": miner_semantic.state_dict(),
-                            "d": d_module.state_dict(),
-                            "g": g_module.state_dict(),
-                            "d": d_module.state_dict(),
-                            "g_ema": g_ema.state_dict(),
-                            "g_optim": g_optim.state_dict(),
-                            "d_optim": d_optim.state_dict(),
-                            "args": args,
-                            "ada_aug_p": ada_aug_p,
-                        },
-                        '%s/best_model.pt' % (os.path.join(args.output_dir, 'checkpoint')),
-                    )
-                    best_fid = fid.copy()
-                with torch.no_grad():
-                    g_ema.eval()
-                    miner.eval()
-                    miner_semantic.eval()
-                    sample, _ = g_ema(miner(sample_z), miner_semantic=miner_semantic)
-                    utils.save_image(
-                        g_ema([sample_z])[0],
-                        '%s/%s_w_o_miner.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6)),
-                        nrow=int(args.n_sample ** 0.5),
-                        normalize=True,
-                        range=(-1, 1),
-                    )
-                    utils.save_image(
-                        sample,
-                        '%s/%s.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6)),
-                        nrow=int(args.n_sample ** 0.5),
-                        normalize=True,
-                        range=(-1, 1),
-                    )
-                    miner.train() #
-                    miner_semantic.train() #
-
-                    # f"checkpoint/{str(i).zfill(6)}.pt",
-            if i % 100000 == 0: #
+        if i % 2000 == 0: #
+            fid, _ = evaluate(args, real_acts=real_acts)
+            wandb.log(
+                {
+                    "FID": fid
+                }
+            )
+            print('------fid:%f-------'%fid)
+            if fid<best_fid:
                 torch.save(
                     {
-                        "miner": miner_module.state_dict(),
-                        "miner_semantic": miner_semantic_module.state_dict(),
+                        "miner": miner.state_dict(),
+                        "miner_semantic": miner_semantic.state_dict(),
+                        "d": d_module.state_dict(),
                         "g": g_module.state_dict(),
                         "d": d_module.state_dict(),
                         "g_ema": g_ema.state_dict(),
@@ -321,8 +270,47 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                         "args": args,
                         "ada_aug_p": ada_aug_p,
                     },
-                    '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6)),
+                    '%s/best_model.pt' % (os.path.join(args.output_dir, 'checkpoint')),
                 )
+                best_fid = fid.copy()
+            with torch.no_grad():
+                g_ema.eval()
+                miner.eval()
+                miner_semantic.eval()
+                sample, _ = g_ema(miner(sample_z), miner_semantic=miner_semantic)
+                utils.save_image(
+                    g_ema([sample_z])[0],
+                    '%s/%s_w_o_miner.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6)),
+                    nrow=int(args.n_sample ** 0.5),
+                    normalize=True,
+                    range=(-1, 1),
+                )
+                utils.save_image(
+                    sample,
+                    '%s/%s.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6)),
+                    nrow=int(args.n_sample ** 0.5),
+                    normalize=True,
+                    range=(-1, 1),
+                )
+                miner.train() #
+                miner_semantic.train() #
+
+                # f"checkpoint/{str(i).zfill(6)}.pt",
+        if i % 100000 == 0: #
+            torch.save(
+                {
+                    "miner": miner_module.state_dict(),
+                    "miner_semantic": miner_semantic_module.state_dict(),
+                    "g": g_module.state_dict(),
+                    "d": d_module.state_dict(),
+                    "g_ema": g_ema.state_dict(),
+                    "g_optim": g_optim.state_dict(),
+                    "d_optim": d_optim.state_dict(),
+                    "args": args,
+                    "ada_aug_p": ada_aug_p,
+                },
+                '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6)),
+            )
 
 
 def test(args):
@@ -378,7 +366,6 @@ def get_args():
     parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
     parser.add_argument("--channel_multiplier", type=int, default=2, help="channel multiplier factor for the model. config-f = 2, else = 1")
     parser.add_argument("--wandb", action="store_true", help="use weights and biases logging")
-    parser.add_argument("--local_rank", type=int, default=0, help="local rank for distributed training")
     parser.add_argument("--augment", action="store_true", help="apply non leaking augmentation")
     parser.add_argument("--augment_p", type=float, default=0, help="probability of applying augmentation. 0 = use adaptive augmentation")
     parser.add_argument("--ada_target", type=float, default=0.6, help="target augmentation probability for adaptive augmentation")
@@ -389,19 +376,11 @@ def get_args():
 
     args = parser.parse_args()
 
-    n_gpu = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
-    args.distributed = n_gpu > 1
-
     if not os.path.exists(os.path.join(args.output_dir, 'checkpoint')):
         os.makedirs(os.path.join(args.output_dir, 'checkpoint'))
 
     if not os.path.exists(os.path.join(args.output_dir, 'samples')):
         os.makedirs(os.path.join(args.output_dir, 'samples'))
-
-    if args.distributed:
-        torch.cuda.set_device(args.local_rank)
-        torch.distributed.init_process_group(backend="nccl", init_method="env://")
-        synchronize()
 
     args.latent = 512
     args.n_mlp = 8
@@ -416,15 +395,9 @@ if __name__ == "__main__":
     miner = Miner(args.latent).to(device) #
     miner_semantic = MinerSemanticConv(code_dim=8, style_dim=args.latent).to(device) # # using conv
 
-    generator = Generator(
-        args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier
-    ).to(device)
-    discriminator = Discriminator(
-        args.size, channel_multiplier=args.channel_multiplier
-    ).to(device)
-    g_ema = Generator(
-        args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier
-    ).to(device)
+    generator = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
+    discriminator = Discriminator(args.size, channel_multiplier=args.channel_multiplier).to(device)
+    g_ema = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
     g_ema.eval()
     accumulate(g_ema, generator, 0)
 
@@ -475,33 +448,6 @@ if __name__ == "__main__":
         # g_optim.load_state_dict(ckpt["g_optim"]) # Previously uncommented
         # d_optim.load_state_dict(ckpt["d_optim"]) # Previously uncommented
 
-    if args.distributed:
-        generator = nn.parallel.DistributedDataParallel(
-            generator,
-            device_ids=[args.local_rank],
-            output_device=args.local_rank,
-            broadcast_buffers=False,
-        )
-
-        discriminator = nn.parallel.DistributedDataParallel(
-            discriminator,
-            device_ids=[args.local_rank],
-            output_device=args.local_rank,
-            broadcast_buffers=False,
-        )
-        miner = nn.parallel.DistributedDataParallel(
-            miner,
-            device_ids=[args.local_rank],
-            output_device=args.local_rank,
-            broadcast_buffers=False,
-        )
-        miner_semantic = nn.parallel.DistributedDataParallel(
-            miner_semantic,
-            device_ids=[args.local_rank],
-            output_device=args.local_rank,
-            broadcast_buffers=False,
-        )
-
     transform = transforms.Compose(
         [
             transforms.RandomHorizontalFlip(),
@@ -521,7 +467,7 @@ if __name__ == "__main__":
     loader = data.DataLoader(
         dataset,
         batch_size=args.batch,
-        sampler=data_sampler(dataset, shuffle=True, distributed=args.distributed),
+        sampler=data_sampler(dataset, shuffle=True),
         drop_last=True,
     )
     loader_test = sample_data_test(
@@ -530,7 +476,7 @@ if __name__ == "__main__":
 
     )
 
-    if get_rank() == 0 and wandb is not None and args.wandb:
+    if args.wandb:
         wandb.init(project="stylegan 2", entity='gan-gyan')
     inception = nn.DataParallel(InceptionV3()).cuda()
     inception.eval()

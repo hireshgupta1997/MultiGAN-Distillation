@@ -14,9 +14,7 @@ def accumulate(model1, model2, decay=0.999):
         par1[k].data.mul_(decay).add_(par2[k].data, alpha=1 - decay)
 
 
-def data_sampler(dataset, shuffle, distributed):
-    if distributed:
-        return data.distributed.DistributedSampler(dataset, shuffle=shuffle)
+def data_sampler(dataset, shuffle):
     if shuffle:
         return data.RandomSampler(dataset)
     else:
