@@ -405,10 +405,9 @@ def get_args():
 
     args.latent = 512
     args.n_mlp = 8
-
     args.start_iter = 0
-
     print(args)
+    return args
 
 if __name__ == "__main__":
     device = "cuda"

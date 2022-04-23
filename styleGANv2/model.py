@@ -729,6 +729,7 @@ def test_generator_with_miner():
 
 
 if __name__ == "__main__":
+    pass
     # test_miner()
     # test_generator()
     # test_generator_with_miner()
