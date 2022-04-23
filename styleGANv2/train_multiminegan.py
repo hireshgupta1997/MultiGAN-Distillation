@@ -8,17 +8,19 @@ import torch
 from torch import nn, autograd, optim
 from torch.nn import functional as F
 from torch.utils import data
-import torch.distributed as dist
 from torchvision import transforms, utils
 from tqdm import tqdm
 
+from metric.inception import InceptionV3
+from metric.metric import get_fake_images_and_acts, compute_fid
+
+
 try:
     import wandb
-
 except ImportError:
     wandb = None
 
-
+from model import Generator, Discriminator, Miner, MinerSemanticConv
 from dataset import MultiResolutionDataset
 from distributed import (
     get_rank,
@@ -27,8 +29,35 @@ from distributed import (
     reduce_sum,
     get_world_size,
 )
-from op import conv2d_gradfix
 from non_leaking import augment, AdaptiveAugment
+
+
+def evaluate(args, real_acts=None):
+    miner.eval()
+    miner_semantic.eval()
+    fake_images, fake_acts = get_fake_images_and_acts(inception, g_ema, miner, miner_semantic, code_size=args.latent,
+                                                      sample_num=args.sample_num, batch_size=8, device=device)
+    # Real:
+    if real_acts is None:
+        print("Computing real_acts for FID calculation..")
+        acts = []
+        pbar = tqdm(total=args.test_number)
+        for i, real_image in enumerate(loader_test):
+            real_image = real_image.cuda()
+            with torch.no_grad():
+                out = inception(real_image)
+                out = out[0].squeeze(-1).squeeze(-1)
+            acts.append(out.cpu().numpy())  # numpy
+            pbar.update(len(real_image))  # numpy
+            if i > args.test_number:
+                break
+        real_acts = np.concatenate(acts, axis=0)  # N x d
+    fid = compute_fid(real_acts, fake_acts)
+
+    miner.train()
+    miner_semantic.train()
+    metrics = {'fid': fid}
+    return fid, real_acts
 
 
 def data_sampler(dataset, shuffle, distributed):
@@ -61,6 +90,13 @@ def sample_data(loader):
             yield batch
 
 
+def sample_data_test(dataset, batch_size, image_size=4, drop_last=True):
+    dataset.resolution = image_size
+
+    loader = data.DataLoader(dataset, shuffle=False, batch_size=batch_size, num_workers=1, drop_last=drop_last)
+    return loader
+
+
 def d_logistic_loss(real_pred, fake_pred):
     real_loss = F.softplus(-real_pred)
     fake_loss = F.softplus(fake_pred)
@@ -69,10 +105,9 @@ def d_logistic_loss(real_pred, fake_pred):
 
 
 def d_r1_loss(real_pred, real_img):
-    with conv2d_gradfix.no_weight_gradients():
-        grad_real, = autograd.grad(
-            outputs=real_pred.sum(), inputs=real_img, create_graph=True
-        )
+    grad_real, = autograd.grad(
+        outputs=real_pred.sum(), inputs=real_img, create_graph=True
+    )
     grad_penalty = grad_real.pow(2).reshape(grad_real.shape[0], -1).sum(1).mean()
 
     return grad_penalty
@@ -100,21 +135,22 @@ def g_path_regularize(fake_img, latents, mean_path_length, decay=0.01):
     return path_penalty, path_mean.detach(), path_lengths
 
 
-def make_noise(batch, latent_dim, n_noise, device):
+# Updated to calculate z = M(u ~ N(0, 1)) instead of z ~ N(0, 1)
+def make_noise(batch, latent_dim, n_noise, device, miner=None):
     if n_noise == 1:
-        return torch.randn(batch, latent_dim, device=device)
+        return miner(torch.randn(batch, latent_dim, device=device))[0]  # the output of miner is list
 
-    noises = torch.randn(n_noise, batch, latent_dim, device=device).unbind(0)
+    noises = miner(torch.randn(n_noise, batch, latent_dim, device=device).unbind(0))
 
     return noises
 
-
-def mixing_noise(batch, latent_dim, prob, device):
+# Updated to calculate z = M(u ~ N(0, 1)) instead of z ~ N(0, 1)
+def mixing_noise(batch, latent_dim, prob, device, miner=None):
     if prob > 0 and random.random() < prob:
-        return make_noise(batch, latent_dim, 2, device)
+        return make_noise(batch, latent_dim, 2, device, miner)
 
     else:
-        return [make_noise(batch, latent_dim, 1, device)]
+        return [make_noise(batch, latent_dim, 1, device, miner)]
 
 
 def set_grad_none(model, targets):
@@ -122,8 +158,8 @@ def set_grad_none(model, targets):
         if n in targets:
             p.grad = None
 
-
-def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, device):
+# Updated to include miner, miner_semantic
+def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, device, miner, miner_semantic):
     loader = sample_data(loader)
 
     pbar = range(args.iter)
@@ -144,20 +180,26 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
     if args.distributed:
         g_module = generator.module
         d_module = discriminator.module
+        miner_module = miner.module #
+        miner_semantic_module = miner_semantic.module #
 
     else:
         g_module = generator
         d_module = discriminator
+        miner_module = miner #
+        miner_semantic_module = miner_semantic #
 
     accum = 0.5 ** (32 / (10 * 1000))
     ada_aug_p = args.augment_p if args.augment_p > 0 else 0.0
     r_t_stat = 0
 
     if args.augment and args.augment_p == 0:
-        ada_augment = AdaptiveAugment(args.ada_target, args.ada_length, 8, device)
+        ada_augment = AdaptiveAugment(args.ada_target, args.ada_length, 256, device)
 
     sample_z = torch.randn(args.n_sample, args.latent, device=device)
-
+    step_dis = 1000 #
+    best_fid, real_acts = evaluate(args) # Added evaluation
+    print('--------fid:%f----------' % best_fid)
     for idx in pbar:
         i = idx + args.start_iter
 
@@ -170,10 +212,12 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         real_img = real_img.to(device)
 
         requires_grad(generator, False)
+        requires_grad(miner, False) #
+        requires_grad(miner_semantic, False) #
         requires_grad(discriminator, True)
 
-        noise = mixing_noise(args.batch, args.latent, args.mixing, device)
-        fake_img, _ = generator(noise)
+        noise = mixing_noise(args.batch, args.latent, args.mixing, device, miner=miner) #
+        fake_img, _ = generator(noise, miner_semantic=miner_semantic) #
 
         if args.augment:
             real_img_aug, _ = augment(real_img, ada_aug_p)
@@ -202,14 +246,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
 
         if d_regularize:
             real_img.requires_grad = True
-
-            if args.augment:
-                real_img_aug, _ = augment(real_img, ada_aug_p)
-
-            else:
-                real_img_aug = real_img
-
-            real_pred = discriminator(real_img_aug)
+            real_pred = discriminator(real_img) # No augment, see original code
             r1_loss = d_r1_loss(real_pred, real_img)
 
             discriminator.zero_grad()
@@ -218,12 +255,16 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
             d_optim.step()
 
         loss_dict["r1"] = r1_loss
-
-        requires_grad(generator, True)
+        if i > (args.start_iter + step_dis): #
+            requires_grad(generator, True) #
+        else:
+            requires_grad(generator, False) #
+        requires_grad(miner, True) #
+        requires_grad(miner_semantic, True) #
         requires_grad(discriminator, False)
 
-        noise = mixing_noise(args.batch, args.latent, args.mixing, device)
-        fake_img, _ = generator(noise)
+        noise = mixing_noise(args.batch, args.latent, args.mixing, device, miner=miner) #
+        fake_img, _ = generator(noise, miner_semantic=miner_semantic) #
 
         if args.augment:
             fake_img, _ = augment(fake_img, ada_aug_p)
@@ -239,10 +280,10 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
 
         g_regularize = i % args.g_reg_every == 0
 
-        if g_regularize:
+        if g_regularize:  # I do not regularize the miner
             path_batch_size = max(1, args.batch // args.path_batch_shrink)
-            noise = mixing_noise(path_batch_size, args.latent, args.mixing, device)
-            fake_img, latents = generator(noise, return_latents=True)
+            noise = mixing_noise(path_batch_size, args.latent, args.mixing, device, miner=miner)
+            fake_img, latents = generator(noise, miner_semantic=miner_semantic, return_latents=True)
 
             path_loss, mean_path_length, path_lengths = g_path_regularize(
                 fake_img, latents, mean_path_length
@@ -259,7 +300,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
             g_optim.step()
 
             mean_path_length_avg = (
-                reduce_sum(mean_path_length).item() / get_world_size()
+                    reduce_sum(mean_path_length).item() / get_world_size()
             )
 
         loss_dict["path"] = path_loss
@@ -302,21 +343,59 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     }
                 )
 
-            if i % 100 == 0:
+            if i % 2000 == 0: #
+                fid, _ = evaluate(args, real_acts=real_acts)
+                wandb.log(
+                    {
+                        "FID": fid
+                    }
+                )
+                print('------fid:%f-------'%fid)
+                if fid<best_fid:
+                    torch.save(
+                        {
+                            "miner": miner.state_dict(),
+                            "miner_semantic": miner_semantic.state_dict(),
+                            "d": d_module.state_dict(),
+                            "g": g_module.state_dict(),
+                            "d": d_module.state_dict(),
+                            "g_ema": g_ema.state_dict(),
+                            "g_optim": g_optim.state_dict(),
+                            "d_optim": d_optim.state_dict(),
+                            "args": args,
+                            "ada_aug_p": ada_aug_p,
+                        },
+                        '%s/best_model.pt' % (os.path.join(args.output_dir, 'checkpoint')),
+                    )
+                    best_fid = fid.copy()
                 with torch.no_grad():
                     g_ema.eval()
-                    sample, _ = g_ema([sample_z])
+                    miner.eval()
+                    miner_semantic.eval()
+                    sample, _ = g_ema(miner(sample_z), miner_semantic=miner_semantic)
                     utils.save_image(
-                        sample,
-                        f"sample/{str(i).zfill(6)}.png",
+                        g_ema([sample_z])[0],
+                        '%s/%s_w_o_miner.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6)),
                         nrow=int(args.n_sample ** 0.5),
                         normalize=True,
                         range=(-1, 1),
                     )
+                    utils.save_image(
+                        sample,
+                        '%s/%s.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6)),
+                        nrow=int(args.n_sample ** 0.5),
+                        normalize=True,
+                        range=(-1, 1),
+                    )
+                    miner.train() #
+                    miner_semantic.train() #
 
-            if i % 10000 == 0:
+                    # f"checkpoint/{str(i).zfill(6)}.pt",
+            if i % 100000 == 0: #
                 torch.save(
                     {
+                        "miner": miner_module.state_dict(),
+                        "miner_semantic": miner_semantic_module.state_dict(),
                         "g": g_module.state_dict(),
                         "d": d_module.state_dict(),
                         "g_ema": g_ema.state_dict(),
@@ -325,8 +404,38 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                         "args": args,
                         "ada_aug_p": ada_aug_p,
                     },
-                    f"checkpoint/{str(i).zfill(6)}.pt",
+                    '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6)),
                 )
+
+
+def test(args):
+    fid, _ = evaluate(args)
+    g_ema.eval()
+    miner.eval()
+    miner_semantic.eval()
+    with torch.no_grad():
+
+        sample_z = torch.randn(args.n_sample, args.latent, device=device)
+        sample, _ = g_ema(miner(sample_z), miner_semantic=miner_semantic)
+
+        utils.save_image(
+            g_ema([sample_z])[0],
+            '%s/%s_w_o_miner.png'%(os.path.join(args.output_dir, 'samples_best'), str(i).zfill(6)),
+            nrow=int(args.n_sample ** 0.5),
+            normalize=True,
+            range=(-1, 1),
+        )
+
+        utils.save_image(
+            sample,
+            '%s/%s.png'%(os.path.join(args.output_dir, 'samples_best'), str(i).zfill(6)),
+            nrow=int(args.n_sample ** 0.5),
+            normalize=True,
+            range=(-1, 1),
+        )
+
+        with open(os.path.join(args.output_dir, 'fid_best.txt'), 'w') as f:
+            f.write('{}\n'.format(fid))
 
 
 if __name__ == "__main__":
@@ -335,7 +444,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="StyleGAN2 trainer")
 
     parser.add_argument("path", type=str, help="path to the lmdb dataset")
-    parser.add_argument('--arch', type=str, default='stylegan2', help='model architectures (stylegan2 | swagan)')
+    parser.add_argument("path_test", type=str, help="path to the lmdb dataset")
     parser.add_argument(
         "--iter", type=int, default=800000, help="total training iterations"
     )
@@ -350,6 +459,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--size", type=int, default=256, help="image sizes for the model"
+    )
+    parser.add_argument(
+        "--sample_num", type=int, default=5000, help="the number of samples computing FID"
+    )
+    parser.add_argument(
+        "--test_number", type=int, default=100, help="the number of test samples"
     )
     parser.add_argument(
         "--r1", type=float, default=10, help="weight of the r1 regularization"
@@ -386,6 +501,12 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="path to the checkpoints to resume training",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="path to save the generatd image and  model",
     )
     parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
     parser.add_argument(
@@ -427,11 +548,22 @@ if __name__ == "__main__":
         default=256,
         help="probability update interval of the adaptive augmentation",
     )
+    parser.add_argument(
+        "--infer_only",
+        action='store_true',
+        help="use this flag to only infer and not train"
+    )
 
     args = parser.parse_args()
 
+    print(args)
     n_gpu = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     args.distributed = n_gpu > 1
+    if not os.path.exists(os.path.join(args.output_dir, 'checkpoint')):
+        os.makedirs(os.path.join(args.output_dir, 'checkpoint'))
+
+    if not os.path.exists(os.path.join(args.output_dir, 'samples')):
+        os.makedirs(os.path.join(args.output_dir, 'samples'))
 
     if args.distributed:
         torch.cuda.set_device(args.local_rank)
@@ -443,11 +575,8 @@ if __name__ == "__main__":
 
     args.start_iter = 0
 
-    if args.arch == 'stylegan2':
-        from model import Generator, Discriminator
-
-    elif args.arch == 'swagan':
-        from swagan import Generator, Discriminator
+    miner = Miner(args.latent).to(device) #
+    miner_semantic = MinerSemanticConv(code_dim=8, style_dim=args.latent).to(device) # # using conv
 
     generator = Generator(
         args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier
@@ -469,6 +598,10 @@ if __name__ == "__main__":
         lr=args.lr * g_reg_ratio,
         betas=(0 ** g_reg_ratio, 0.99 ** g_reg_ratio),
     )
+    g_optim.add_param_group(
+        {'params': miner.parameters(), 'lr': args.lr * g_reg_ratio, 'betas': (0 ** g_reg_ratio, 0.99 ** g_reg_ratio)})
+    g_optim.add_param_group({'params': miner_semantic.parameters(), 'lr': args.lr * g_reg_ratio,
+                             'betas': (0 ** g_reg_ratio, 0.99 ** g_reg_ratio)})
     d_optim = optim.Adam(
         discriminator.parameters(),
         lr=args.lr * d_reg_ratio,
@@ -487,12 +620,22 @@ if __name__ == "__main__":
         except ValueError:
             pass
 
-        generator.load_state_dict(ckpt["g"])
-        discriminator.load_state_dict(ckpt["d"])
-        g_ema.load_state_dict(ckpt["g_ema"])
+        if 'g' in ckpt:
+            generator.load_state_dict(ckpt["g"], strict=False)#  I add strict=False, since the provided model is little different. And we add two miner networks
+        elif 'g_ema' in ckpt:
+            generator.load_state_dict(ckpt['g_ema'])
+        else:
+            print('No generator found. Randomly initializing.')
 
-        g_optim.load_state_dict(ckpt["g_optim"])
-        d_optim.load_state_dict(ckpt["d_optim"])
+        if 'd' in ckpt: #
+            discriminator.load_state_dict(ckpt["d"])
+        else:
+            print('No discriminator found. Randomly initializing.')
+
+        g_ema.load_state_dict(ckpt["g_ema"], strict=False)#  I add strict=False
+
+        # g_optim.load_state_dict(ckpt["g_optim"]) # Previously uncommented
+        # d_optim.load_state_dict(ckpt["d_optim"]) # Previously uncommented
 
     if args.distributed:
         generator = nn.parallel.DistributedDataParallel(
@@ -508,6 +651,18 @@ if __name__ == "__main__":
             output_device=args.local_rank,
             broadcast_buffers=False,
         )
+        miner = nn.parallel.DistributedDataParallel(
+            miner,
+            device_ids=[args.local_rank],
+            output_device=args.local_rank,
+            broadcast_buffers=False,
+        )
+        miner_semantic = nn.parallel.DistributedDataParallel(
+            miner_semantic,
+            device_ids=[args.local_rank],
+            output_device=args.local_rank,
+            broadcast_buffers=False,
+        )
 
     transform = transforms.Compose(
         [
@@ -516,16 +671,33 @@ if __name__ == "__main__":
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
         ]
     )
+    transform_test = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
+        ]
+    )
 
     dataset = MultiResolutionDataset(args.path, transform, args.size)
+    dataset_test = MultiResolutionDataset(args.path_test, transform_test, args.size)#here we can give the test data path
     loader = data.DataLoader(
         dataset,
         batch_size=args.batch,
         sampler=data_sampler(dataset, shuffle=True, distributed=args.distributed),
         drop_last=True,
     )
+    loader_test = sample_data_test(
+
+        dataset_test, batch_size=args.batch, image_size=args.size, drop_last=True
+
+    )
 
     if get_rank() == 0 and wandb is not None and args.wandb:
-        wandb.init(project="stylegan 2")
+        wandb.init(project="stylegan 2", entity='gan-gyan')
+    inception = nn.DataParallel(InceptionV3()).cuda()
+    inception.eval()
 
-    train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, device)
+    if args.infer_only:
+        test(args)
+    else:
+        train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, device, miner, miner_semantic)
