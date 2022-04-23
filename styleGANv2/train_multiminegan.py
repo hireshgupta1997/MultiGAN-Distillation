@@ -4,6 +4,7 @@ import os
 
 import numpy as np
 import torch
+import wandb
 from torch import nn, optim
 
 from torch.utils import data
@@ -12,12 +13,6 @@ from tqdm import tqdm
 
 from metric.inception import InceptionV3
 from metric.metric import get_fake_images_and_acts, compute_fid
-
-
-try:
-    import wandb
-except ImportError:
-    wandb = None
 
 from model import Generator, Discriminator, Miner, MinerSemanticConv
 from dataset import MultiResolutionDataset
@@ -69,6 +64,7 @@ def make_noise(batch, latent_dim, n_noise, device, miner=None):
     noises = miner(torch.randn(n_noise, batch, latent_dim, device=device).unbind(0))
 
     return noises
+
 
 # Updated to calculate z = M(u ~ N(0, 1)) instead of z ~ N(0, 1)
 def mixing_noise(batch, latent_dim, prob, device, miner=None):
@@ -359,127 +355,43 @@ def test(args):
             f.write('{}\n'.format(fid))
 
 
-if __name__ == "__main__":
-    device = "cuda"
-
+def get_args():
     parser = argparse.ArgumentParser(description="StyleGAN2 trainer")
 
     parser.add_argument("path", type=str, help="path to the lmdb dataset")
     parser.add_argument("path_test", type=str, help="path to the lmdb dataset")
-    parser.add_argument(
-        "--iter", type=int, default=800000, help="total training iterations"
-    )
-    parser.add_argument(
-        "--batch", type=int, default=16, help="batch sizes for each gpus"
-    )
-    parser.add_argument(
-        "--n_sample",
-        type=int,
-        default=64,
-        help="number of the samples generated during training",
-    )
-    parser.add_argument(
-        "--size", type=int, default=256, help="image sizes for the model"
-    )
-    parser.add_argument(
-        "--sample_num", type=int, default=5000, help="the number of samples computing FID"
-    )
-    parser.add_argument(
-        "--test_number", type=int, default=100, help="the number of test samples"
-    )
-    parser.add_argument(
-        "--r1", type=float, default=10, help="weight of the r1 regularization"
-    )
-    parser.add_argument(
-        "--path_regularize",
-        type=float,
-        default=2,
-        help="weight of the path length regularization",
-    )
-    parser.add_argument(
-        "--path_batch_shrink",
-        type=int,
-        default=2,
-        help="batch size reducing factor for the path length regularization (reduce memory consumption)",
-    )
-    parser.add_argument(
-        "--d_reg_every",
-        type=int,
-        default=16,
-        help="interval of the applying r1 regularization",
-    )
-    parser.add_argument(
-        "--g_reg_every",
-        type=int,
-        default=4,
-        help="interval of the applying path length regularization",
-    )
-    parser.add_argument(
-        "--mixing", type=float, default=0.9, help="probability of latent code mixing"
-    )
-    parser.add_argument(
-        "--ckpt",
-        type=str,
-        default=None,
-        help="path to the checkpoints to resume training",
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default=None,
-        help="path to save the generatd image and  model",
-    )
+    parser.add_argument("--iter", type=int, default=800000, help="total training iterations")
+    parser.add_argument("--batch", type=int, default=16, help="batch sizes for each gpus")
+    parser.add_argument("--n_sample", type=int, default=64, help="number of the samples generated during training")
+    parser.add_argument("--size", type=int, default=256, help="image sizes for the model")
+    parser.add_argument("--sample_num", type=int, default=5000, help="the number of samples computing FID")
+    parser.add_argument("--test_number", type=int, default=100, help="the number of test samples")
+    parser.add_argument("--r1", type=float, default=10, help="weight of the r1 regularization")
+    parser.add_argument("--path_regularize", type=float, default=2, help="weight of the path length regularization")
+    parser.add_argument("--path_batch_shrink", type=int, default=2,
+                        help="batch size reducing factor for the path length regularization (reduce memory consumption)")
+    parser.add_argument("--d_reg_every", type=int, default=16, help="interval of the applying r1 regularization")
+    parser.add_argument("--g_reg_every", type=int, default=4, help="interval of the applying path length regularization")
+    parser.add_argument("--mixing", type=float, default=0.9, help="probability of latent code mixing")
+    parser.add_argument("--ckpt", type=str, default=None, help="path to the checkpoints to resume training")
+    parser.add_argument("--output_dir", type=str, default=None, help="path to save the generatd image and  model")
     parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
-    parser.add_argument(
-        "--channel_multiplier",
-        type=int,
-        default=2,
-        help="channel multiplier factor for the model. config-f = 2, else = 1",
-    )
-    parser.add_argument(
-        "--wandb", action="store_true", help="use weights and biases logging"
-    )
-    parser.add_argument(
-        "--local_rank", type=int, default=0, help="local rank for distributed training"
-    )
-    parser.add_argument(
-        "--augment", action="store_true", help="apply non leaking augmentation"
-    )
-    parser.add_argument(
-        "--augment_p",
-        type=float,
-        default=0,
-        help="probability of applying augmentation. 0 = use adaptive augmentation",
-    )
-    parser.add_argument(
-        "--ada_target",
-        type=float,
-        default=0.6,
-        help="target augmentation probability for adaptive augmentation",
-    )
-    parser.add_argument(
-        "--ada_length",
-        type=int,
-        default=500 * 1000,
-        help="target duraing to reach augmentation probability for adaptive augmentation",
-    )
-    parser.add_argument(
-        "--ada_every",
-        type=int,
-        default=256,
-        help="probability update interval of the adaptive augmentation",
-    )
-    parser.add_argument(
-        "--infer_only",
-        action='store_true',
-        help="use this flag to only infer and not train"
-    )
+    parser.add_argument("--channel_multiplier", type=int, default=2, help="channel multiplier factor for the model. config-f = 2, else = 1")
+    parser.add_argument("--wandb", action="store_true", help="use weights and biases logging")
+    parser.add_argument("--local_rank", type=int, default=0, help="local rank for distributed training")
+    parser.add_argument("--augment", action="store_true", help="apply non leaking augmentation")
+    parser.add_argument("--augment_p", type=float, default=0, help="probability of applying augmentation. 0 = use adaptive augmentation")
+    parser.add_argument("--ada_target", type=float, default=0.6, help="target augmentation probability for adaptive augmentation")
+    parser.add_argument("--ada_length", type=int, default=500 * 1000,
+                        help="target duraing to reach augmentation probability for adaptive augmentation")
+    parser.add_argument("--ada_every", type=int, default=256, help="probability update interval of the adaptive augmentation")
+    parser.add_argument("--infer_only", action='store_true', help="use this flag to only infer and not train")
 
     args = parser.parse_args()
 
-    print(args)
     n_gpu = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     args.distributed = n_gpu > 1
+
     if not os.path.exists(os.path.join(args.output_dir, 'checkpoint')):
         os.makedirs(os.path.join(args.output_dir, 'checkpoint'))
 
@@ -495,6 +407,12 @@ if __name__ == "__main__":
     args.n_mlp = 8
 
     args.start_iter = 0
+
+    print(args)
+
+if __name__ == "__main__":
+    device = "cuda"
+    args = get_args()
 
     miner = Miner(args.latent).to(device) #
     miner_semantic = MinerSemanticConv(code_dim=8, style_dim=args.latent).to(device) # # using conv
