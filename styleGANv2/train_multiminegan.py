@@ -1,12 +1,11 @@
 import argparse
-import math
 import random
 import os
 
 import numpy as np
 import torch
-from torch import nn, autograd, optim
-from torch.nn import functional as F
+from torch import nn, optim
+
 from torch.utils import data
 from torchvision import transforms, utils
 from tqdm import tqdm
@@ -31,8 +30,11 @@ from distributed import (
 )
 from non_leaking import augment, AdaptiveAugment
 
+from loss_utils import d_logistic_loss, d_r1_loss, g_nonsaturating_loss, g_path_regularize
+from train_utils import requires_grad, accumulate, data_sampler, sample_data, sample_data_test
 
-def evaluate(args, real_acts=None):
+
+def evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device, real_acts=None):
     miner.eval()
     miner_semantic.eval()
     fake_images, fake_acts = get_fake_images_and_acts(inception, g_ema, miner, miner_semantic, code_size=args.latent,
@@ -56,83 +58,7 @@ def evaluate(args, real_acts=None):
 
     miner.train()
     miner_semantic.train()
-    metrics = {'fid': fid}
     return fid, real_acts
-
-
-def data_sampler(dataset, shuffle, distributed):
-    if distributed:
-        return data.distributed.DistributedSampler(dataset, shuffle=shuffle)
-
-    if shuffle:
-        return data.RandomSampler(dataset)
-
-    else:
-        return data.SequentialSampler(dataset)
-
-
-def requires_grad(model, flag=True):
-    for p in model.parameters():
-        p.requires_grad = flag
-
-
-def accumulate(model1, model2, decay=0.999):
-    par1 = dict(model1.named_parameters())
-    par2 = dict(model2.named_parameters())
-
-    for k in par1.keys():
-        par1[k].data.mul_(decay).add_(par2[k].data, alpha=1 - decay)
-
-
-def sample_data(loader):
-    while True:
-        for batch in loader:
-            yield batch
-
-
-def sample_data_test(dataset, batch_size, image_size=4, drop_last=True):
-    dataset.resolution = image_size
-
-    loader = data.DataLoader(dataset, shuffle=False, batch_size=batch_size, num_workers=1, drop_last=drop_last)
-    return loader
-
-
-def d_logistic_loss(real_pred, fake_pred):
-    real_loss = F.softplus(-real_pred)
-    fake_loss = F.softplus(fake_pred)
-
-    return real_loss.mean() + fake_loss.mean()
-
-
-def d_r1_loss(real_pred, real_img):
-    grad_real, = autograd.grad(
-        outputs=real_pred.sum(), inputs=real_img, create_graph=True
-    )
-    grad_penalty = grad_real.pow(2).reshape(grad_real.shape[0], -1).sum(1).mean()
-
-    return grad_penalty
-
-
-def g_nonsaturating_loss(fake_pred):
-    loss = F.softplus(-fake_pred).mean()
-
-    return loss
-
-
-def g_path_regularize(fake_img, latents, mean_path_length, decay=0.01):
-    noise = torch.randn_like(fake_img) / math.sqrt(
-        fake_img.shape[2] * fake_img.shape[3]
-    )
-    grad, = autograd.grad(
-        outputs=(fake_img * noise).sum(), inputs=latents, create_graph=True
-    )
-    path_lengths = torch.sqrt(grad.pow(2).sum(2).mean(1))
-
-    path_mean = mean_path_length + decay * (path_lengths.mean() - mean_path_length)
-
-    path_penalty = (path_lengths - path_mean).pow(2).mean()
-
-    return path_penalty, path_mean.detach(), path_lengths
 
 
 # Updated to calculate z = M(u ~ N(0, 1)) instead of z ~ N(0, 1)
@@ -152,11 +78,6 @@ def mixing_noise(batch, latent_dim, prob, device, miner=None):
     else:
         return [make_noise(batch, latent_dim, 1, device, miner)]
 
-
-def set_grad_none(model, targets):
-    for n, p in model.named_parameters():
-        if n in targets:
-            p.grad = None
 
 # Updated to include miner, miner_semantic
 def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, device, miner, miner_semantic):
@@ -198,7 +119,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
 
     sample_z = torch.randn(args.n_sample, args.latent, device=device)
     step_dis = 1000 #
-    best_fid, real_acts = evaluate(args) # Added evaluation
+    best_fid, real_acts = evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device) # Added evaluation
     print('--------fid:%f----------' % best_fid)
     for idx in pbar:
         i = idx + args.start_iter
