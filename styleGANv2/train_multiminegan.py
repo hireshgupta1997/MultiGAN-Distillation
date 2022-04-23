@@ -249,7 +249,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
             )
 
         if i % 2000 == 0: #
-            fid, _ = evaluate(args, real_acts=real_acts)
+            fid, _ = evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device, real_acts=real_acts)
             wandb.log(
                 {
                     "FID": fid
@@ -314,7 +314,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
 
 
 def test(args):
-    fid, _ = evaluate(args)
+    fid, _ = evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device)
     g_ema.eval()
     miner.eval()
     miner_semantic.eval()
