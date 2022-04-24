@@ -19,7 +19,7 @@ from dataset import MultiResolutionDataset
 from non_leaking import augment, AdaptiveAugment
 
 from loss_utils import d_logistic_loss, d_r1_loss, g_nonsaturating_loss, g_path_regularize
-from train_utils import requires_grad, accumulate, data_sampler, sample_data, sample_data_test
+from train_utils import requires_grad, accumulate, data_sampler, sample_data
 
 
 def evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device, real_acts=None):
@@ -106,7 +106,6 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
 
         if i > args.iter:
             print("Done!")
-
             break
 
         real_img = next(loader)
@@ -373,6 +372,10 @@ def get_args():
     args.latent = 512
     args.n_mlp = 8
     args.start_iter = 0
+
+    if args.wandb:
+        wandb.init(project="stylegan 2", entity='gan-gyan')
+
     print(args)
     return args
 
@@ -380,15 +383,16 @@ if __name__ == "__main__":
     device = "cuda"
     args = get_args()
 
+    # Instantiate models
     miner = Miner(args.latent).to(device) #
     miner_semantic = MinerSemanticConv(code_dim=8, style_dim=args.latent).to(device) # # using conv
-
     generator = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
     discriminator = Discriminator(args.size, channel_multiplier=args.channel_multiplier).to(device)
     g_ema = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
     g_ema.eval()
     accumulate(g_ema, generator, 0)
 
+    # Setup optimizers
     g_reg_ratio = args.g_reg_every / (args.g_reg_every + 1)
     d_reg_ratio = args.d_reg_every / (args.d_reg_every + 1)
 
@@ -407,18 +411,17 @@ if __name__ == "__main__":
         betas=(0 ** d_reg_ratio, 0.99 ** d_reg_ratio),
     )
 
+    # Load Pre-trained weights
     if args.ckpt is not None:
         print("load model:", args.ckpt)
-
         ckpt = torch.load(args.ckpt, map_location=lambda storage, loc: storage)
-
         try:
             ckpt_name = os.path.basename(args.ckpt)
             args.start_iter = int(os.path.splitext(ckpt_name)[0])
-
         except ValueError:
             pass
 
+        # Load generator
         if 'g' in ckpt:
             generator.load_state_dict(ckpt["g"], strict=False)#  I add strict=False, since the provided model is little different. And we add two miner networks
         elif 'g_ema' in ckpt:
@@ -426,6 +429,7 @@ if __name__ == "__main__":
         else:
             print('No generator found. Randomly initializing.')
 
+        # Load discriminator
         if 'd' in ckpt: #
             discriminator.load_state_dict(ckpt["d"])
         else:
@@ -436,36 +440,21 @@ if __name__ == "__main__":
         # g_optim.load_state_dict(ckpt["g_optim"]) # Previously uncommented
         # d_optim.load_state_dict(ckpt["d_optim"]) # Previously uncommented
 
-    transform = transforms.Compose(
-        [
+    # Setup datasets and data loaders
+    transform = transforms.Compose([
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
-        ]
-    )
-    transform_test = transforms.Compose(
-        [
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True),
-        ]
-    )
-
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)])
     dataset = MultiResolutionDataset(args.path, transform, args.size)
-    dataset_test = MultiResolutionDataset(args.path_test, transform_test, args.size)#here we can give the test data path
-    loader = data.DataLoader(
-        dataset,
-        batch_size=args.batch,
-        sampler=data_sampler(dataset, shuffle=True),
-        drop_last=True,
-    )
-    loader_test = sample_data_test(
+    loader = data.DataLoader(dataset, batch_size=args.batch, sampler=data_sampler(dataset, shuffle=True),
+                             drop_last=True)
 
-        dataset_test, batch_size=args.batch, image_size=args.size, drop_last=True
+    transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)])
+    dataset_test = MultiResolutionDataset(args.path_test, transform_test, args.size) #here we can give the test data path
+    loader_test = data.DataLoader(dataset, shuffle=False, batch_size=args.batch, num_workers=1, drop_last=True)
 
-    )
-
-    if args.wandb:
-        wandb.init(project="stylegan 2", entity='gan-gyan')
     inception = nn.DataParallel(InceptionV3()).cuda()
     inception.eval()
 

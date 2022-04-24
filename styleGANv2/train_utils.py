@@ -25,9 +25,3 @@ def sample_data(loader):
     while True:
         for batch in loader:
             yield batch
-
-
-def sample_data_test(dataset, batch_size, image_size=4, drop_last=True):
-    dataset.resolution = image_size
-    loader = data.DataLoader(dataset, shuffle=False, batch_size=batch_size, num_workers=1, drop_last=drop_last)
-    return loader
