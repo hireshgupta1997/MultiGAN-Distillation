@@ -66,7 +66,7 @@ def mixing_noise(batch, latent_dim, prob, device, miner=None):
 
 
 # Updated to include miner, miner_semantic
-def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, device, miner, miner_semantic):
+def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner_semantic):
     loader = sample_data(loader)
 
     pbar = range(args.iter)
@@ -103,13 +103,13 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         real_img = next(loader)
         real_img = real_img.to(device)
 
-        requires_grad(generator, False)
+        requires_grad(gen, False)
         requires_grad(miner, False) #
         requires_grad(miner_semantic, False) #
-        requires_grad(discriminator, True)
+        requires_grad(disc, True)
 
         noise = mixing_noise(args.batch, args.latent, args.mixing, device, miner=miner) #
-        fake_img, _ = generator(noise, miner_semantic=miner_semantic) #
+        fake_img, _ = gen(noise, miner_semantic=miner_semantic) #
 
         if args.augment:
             real_img_aug, _ = augment(real_img, ada_aug_p)
@@ -118,15 +118,15 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         else:
             real_img_aug = real_img
 
-        fake_pred = discriminator(fake_img)
-        real_pred = discriminator(real_img_aug)
+        fake_pred = disc(fake_img)
+        real_pred = disc(real_img_aug)
         d_loss = d_logistic_loss(real_pred, fake_pred)
 
         loss_dict["d"] = d_loss
         loss_dict["real_score"] = real_pred.mean()
         loss_dict["fake_score"] = fake_pred.mean()
 
-        discriminator.zero_grad()
+        disc.zero_grad()
         d_loss.backward()
         d_optim.step()
 
@@ -138,35 +138,35 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
 
         if d_regularize:
             real_img.requires_grad = True
-            real_pred = discriminator(real_img) # No augment, see original code
+            real_pred = disc(real_img) # No augment, see original code
             r1_loss = d_r1_loss(real_pred, real_img)
 
-            discriminator.zero_grad()
+            disc.zero_grad()
             (args.r1 / 2 * r1_loss * args.d_reg_every + 0 * real_pred[0]).backward()
 
             d_optim.step()
 
         loss_dict["r1"] = r1_loss
         if i > (args.start_iter + step_dis): #
-            requires_grad(generator, True) #
+            requires_grad(gen, True) #
         else:
-            requires_grad(generator, False) #
+            requires_grad(gen, False) #
         requires_grad(miner, True) #
         requires_grad(miner_semantic, True) #
-        requires_grad(discriminator, False)
+        requires_grad(disc, False)
 
         noise = mixing_noise(args.batch, args.latent, args.mixing, device, miner=miner) #
-        fake_img, _ = generator(noise, miner_semantic=miner_semantic) #
+        fake_img, _ = gen(noise, miner_semantic=miner_semantic) #
 
         if args.augment:
             fake_img, _ = augment(fake_img, ada_aug_p)
 
-        fake_pred = discriminator(fake_img)
+        fake_pred = disc(fake_img)
         g_loss = g_nonsaturating_loss(fake_pred)
 
         loss_dict["g"] = g_loss
 
-        generator.zero_grad()
+        gen.zero_grad()
         g_loss.backward()
         g_optim.step()
 
@@ -175,13 +175,13 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         if g_regularize:  # I do not regularize the miner
             path_batch_size = max(1, args.batch // args.path_batch_shrink)
             noise = mixing_noise(path_batch_size, args.latent, args.mixing, device, miner=miner)
-            fake_img, latents = generator(noise, miner_semantic=miner_semantic, return_latents=True)
+            fake_img, latents = gen(noise, miner_semantic=miner_semantic, return_latents=True)
 
             path_loss, mean_path_length, path_lengths = g_path_regularize(
                 fake_img, latents, mean_path_length
             )
 
-            generator.zero_grad()
+            gen.zero_grad()
             weighted_path_loss = args.path_regularize * args.g_reg_every * path_loss
 
             if args.path_batch_shrink:
@@ -196,7 +196,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         loss_dict["path"] = path_loss
         loss_dict["path_length"] = path_lengths.mean()
 
-        accumulate(g_ema, generator, accum)
+        accumulate(g_ema, gen, accum)
 
         d_loss_val = loss_dict["d"].mean().item()
         g_loss_val = loss_dict["g"].mean().item()
@@ -238,9 +238,9 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     {
                         "miner": miner.state_dict(),
                         "miner_semantic": miner_semantic.state_dict(),
-                        "d": discriminator.state_dict(),
-                        "g": generator.state_dict(),
-                        "d": discriminator.state_dict(),
+                        "d": disc.state_dict(),
+                        "g": gen.state_dict(),
+                        "d": disc.state_dict(),
                         "g_ema": g_ema.state_dict(),
                         "g_optim": g_optim.state_dict(),
                         "d_optim": d_optim.state_dict(),
@@ -278,8 +278,8 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                 {
                     "miner": miner.state_dict(),
                     "miner_semantic": miner_semantic.state_dict(),
-                    "g": generator.state_dict(),
-                    "d": discriminator.state_dict(),
+                    "g": gen.state_dict(),
+                    "d": disc.state_dict(),
                     "g_ema": g_ema.state_dict(),
                     "g_optim": g_optim.state_dict(),
                     "d_optim": d_optim.state_dict(),
@@ -376,18 +376,18 @@ if __name__ == "__main__":
     # Instantiate models
     miner = Miner(args.latent).to(device) #
     miner_semantic = MinerSemanticConv(code_dim=8, style_dim=args.latent).to(device) # # using conv
-    generator = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
-    discriminator = Discriminator(args.size, channel_multiplier=args.channel_multiplier).to(device)
+    gen = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
+    disc = Discriminator(args.size, channel_multiplier=args.channel_multiplier).to(device)
     g_ema = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
     g_ema.eval()
-    accumulate(g_ema, generator, 0)
+    accumulate(g_ema, gen, 0)
 
     # Setup optimizers
     g_reg_ratio = args.g_reg_every / (args.g_reg_every + 1)
     d_reg_ratio = args.d_reg_every / (args.d_reg_every + 1)
 
     g_optim = optim.Adam(
-        generator.parameters(),
+        gen.parameters(),
         lr=args.lr * g_reg_ratio,
         betas=(0 ** g_reg_ratio, 0.99 ** g_reg_ratio),
     )
@@ -396,7 +396,7 @@ if __name__ == "__main__":
     g_optim.add_param_group({'params': miner_semantic.parameters(), 'lr': args.lr * g_reg_ratio,
                              'betas': (0 ** g_reg_ratio, 0.99 ** g_reg_ratio)})
     d_optim = optim.Adam(
-        discriminator.parameters(),
+        disc.parameters(),
         lr=args.lr * d_reg_ratio,
         betas=(0 ** d_reg_ratio, 0.99 ** d_reg_ratio),
     )
@@ -413,15 +413,15 @@ if __name__ == "__main__":
 
         # Load generator
         if 'g' in ckpt:
-            generator.load_state_dict(ckpt["g"], strict=False)#  I add strict=False, since the provided model is little different. And we add two miner networks
+            gen.load_state_dict(ckpt["g"], strict=False)#  I add strict=False, since the provided model is little different. And we add two miner networks
         elif 'g_ema' in ckpt:
-            generator.load_state_dict(ckpt['g_ema'])
+            gen.load_state_dict(ckpt['g_ema'])
         else:
             print('No generator found. Randomly initializing.')
 
         # Load discriminator
         if 'd' in ckpt: #
-            discriminator.load_state_dict(ckpt["d"])
+            disc.load_state_dict(ckpt["d"])
         else:
             print('No discriminator found. Randomly initializing.')
 
@@ -451,4 +451,4 @@ if __name__ == "__main__":
     if args.infer_only:
         test(args)
     else:
-        train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, device, miner, miner_semantic)
+        train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner_semantic)
