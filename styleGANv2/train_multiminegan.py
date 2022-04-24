@@ -65,11 +65,8 @@ def mixing_noise(batch, latent_dim, prob, device, miner=None):
 
 
 # Updated to include miner, miner_semantic
-def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner_semantic):
+def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner_semantic, inception, loader_test):
     loader = sample_data(loader)
-
-    pbar = range(args.iter)
-    pbar = tqdm(pbar, initial=args.start_iter, dynamic_ncols=True, smoothing=0.01)
 
     mean_path_length = 0
 
@@ -85,8 +82,12 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
 
     sample_z = torch.randn(args.n_sample, args.latent, device=device)
     step_dis = 1000 #
+
     best_fid, real_acts = evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device) # Added evaluation
     print('--------fid:%f----------' % best_fid)
+
+    pbar = range(args.iter)
+    pbar = tqdm(pbar, initial=args.start_iter, dynamic_ncols=True, smoothing=0.01)
     for idx in pbar:
         i = idx + args.start_iter
 
@@ -97,6 +98,7 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
         real_img = next(loader)
         real_img = real_img.to(device)
 
+        # Update discriminator weights ############################################################
         requires_grad(gen, False)
         requires_grad(miner, False) #
         requires_grad(miner_semantic, False) #
@@ -130,6 +132,8 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
             d_optim.step()
 
         loss_dict["r1"] = r1_loss
+
+        # Update generator weights ################################################################
         if i > (args.start_iter + step_dis): #
             requires_grad(gen, True) #
         else:
@@ -193,6 +197,7 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
             )
         )
 
+        # Log training progress
         if args.wandb:
             wandb.log({
                     "Generator": g_loss_val,
@@ -205,7 +210,7 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
                     "Path Length": path_length_val,
                 })
 
-        if i % 2000 == 0: #
+        if i % 2000 == 0: # Evaluate and save best model, visualizations every 2000 iterations
             fid, _ = evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device, real_acts=real_acts)
             if args.wandb:
                 wandb.log({"FID": fid})
@@ -226,6 +231,7 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
                     '%s/best_model.pt' % (os.path.join(args.output_dir, 'checkpoint')),
                 )
                 best_fid = fid.copy()
+
             with torch.no_grad():
                 g_ema.eval()
                 miner.eval()
@@ -249,7 +255,8 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
                 miner_semantic.train() #
 
                 # f"checkpoint/{str(i).zfill(6)}.pt",
-        if i % 100000 == 0: #
+
+        if i % 100000 == 0: # Save every 100000 iterations
             torch.save(
                 {
                     "miner": miner.state_dict(),
@@ -420,4 +427,4 @@ if __name__ == "__main__":
     if args.infer_only:
         test(args)
     else:
-        train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner_semantic)
+        train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner_semantic, inception, loader_test)
