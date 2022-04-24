@@ -16,7 +16,6 @@ from metric.metric import get_fake_images_and_acts, compute_fid
 
 from model import Generator, Discriminator, Miner, MinerSemanticConv
 from dataset import MultiResolutionDataset
-from non_leaking import augment, AdaptiveAugment
 
 from loss_utils import d_logistic_loss, d_r1_loss, g_nonsaturating_loss, g_path_regularize
 from train_utils import requires_grad, accumulate, data_sampler, sample_data
@@ -83,11 +82,6 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
     loss_dict = {}
 
     accum = 0.5 ** (32 / (10 * 1000))
-    ada_aug_p = args.augment_p if args.augment_p > 0 else 0.0
-    r_t_stat = 0
-
-    if args.augment and args.augment_p == 0:
-        ada_augment = AdaptiveAugment(args.ada_target, args.ada_length, 256, device)
 
     sample_z = torch.randn(args.n_sample, args.latent, device=device)
     step_dis = 1000 #
@@ -111,15 +105,8 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
         noise = mixing_noise(args.batch, args.latent, args.mixing, device, miner=miner) #
         fake_img, _ = gen(noise, miner_semantic=miner_semantic) #
 
-        if args.augment:
-            real_img_aug, _ = augment(real_img, ada_aug_p)
-            fake_img, _ = augment(fake_img, ada_aug_p)
-
-        else:
-            real_img_aug = real_img
-
         fake_pred = disc(fake_img)
-        real_pred = disc(real_img_aug)
+        real_pred = disc(real_img)
         d_loss = d_logistic_loss(real_pred, fake_pred)
 
         loss_dict["d"] = d_loss
@@ -130,15 +117,11 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
         d_loss.backward()
         d_optim.step()
 
-        if args.augment and args.augment_p == 0:
-            ada_aug_p = ada_augment.tune(real_pred)
-            r_t_stat = ada_augment.r_t_stat
-
         d_regularize = i % args.d_reg_every == 0
 
         if d_regularize:
             real_img.requires_grad = True
-            real_pred = disc(real_img) # No augment, see original code
+            real_pred = disc(real_img)
             r1_loss = d_r1_loss(real_pred, real_img)
 
             disc.zero_grad()
@@ -157,9 +140,6 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
 
         noise = mixing_noise(args.batch, args.latent, args.mixing, device, miner=miner) #
         fake_img, _ = gen(noise, miner_semantic=miner_semantic) #
-
-        if args.augment:
-            fake_img, _ = augment(fake_img, ada_aug_p)
 
         fake_pred = disc(fake_img)
         g_loss = g_nonsaturating_loss(fake_pred)
@@ -210,7 +190,6 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
             (
                 f"d: {d_loss_val:.4f}; g: {g_loss_val:.4f}; r1: {r1_val:.4f}; "
                 f"path: {path_loss_val:.4f}; mean path: {mean_path_length_avg:.4f}; "
-                f"augment: {ada_aug_p:.4f}"
             )
         )
 
@@ -218,8 +197,6 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
             wandb.log({
                     "Generator": g_loss_val,
                     "Discriminator": d_loss_val,
-                    "Augment": ada_aug_p,
-                    "Rt": r_t_stat,
                     "R1": r1_val,
                     "Path Length Regularization": path_loss_val,
                     "Mean Path Length": mean_path_length,
@@ -244,8 +221,7 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
                         "g_ema": g_ema.state_dict(),
                         "g_optim": g_optim.state_dict(),
                         "d_optim": d_optim.state_dict(),
-                        "args": args,
-                        "ada_aug_p": ada_aug_p,
+                        "args": args
                     },
                     '%s/best_model.pt' % (os.path.join(args.output_dir, 'checkpoint')),
                 )
@@ -283,8 +259,7 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
                     "g_ema": g_ema.state_dict(),
                     "g_optim": g_optim.state_dict(),
                     "d_optim": d_optim.state_dict(),
-                    "args": args,
-                    "ada_aug_p": ada_aug_p,
+                    "args": args
                 },
                 '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6)),
             )
@@ -343,12 +318,6 @@ def get_args():
     parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
     parser.add_argument("--channel_multiplier", type=int, default=2, help="channel multiplier factor for the model. config-f = 2, else = 1")
     parser.add_argument("--wandb", action="store_true", help="use weights and biases logging")
-    parser.add_argument("--augment", action="store_true", help="apply non leaking augmentation")
-    parser.add_argument("--augment_p", type=float, default=0, help="probability of applying augmentation. 0 = use adaptive augmentation")
-    parser.add_argument("--ada_target", type=float, default=0.6, help="target augmentation probability for adaptive augmentation")
-    parser.add_argument("--ada_length", type=int, default=500 * 1000,
-                        help="target duraing to reach augmentation probability for adaptive augmentation")
-    parser.add_argument("--ada_every", type=int, default=256, help="probability update interval of the adaptive augmentation")
     parser.add_argument("--infer_only", action='store_true', help="use this flag to only infer and not train")
 
     args = parser.parse_args()
