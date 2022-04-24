@@ -53,9 +53,7 @@ def evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device,
 def make_noise(batch, latent_dim, n_noise, device, miner=None):
     if n_noise == 1:
         return miner(torch.randn(batch, latent_dim, device=device))[0]  # the output of miner is list
-
     noises = miner(torch.randn(n_noise, batch, latent_dim, device=device).unbind(0))
-
     return noises
 
 
@@ -63,7 +61,6 @@ def make_noise(batch, latent_dim, n_noise, device, miner=None):
 def mixing_noise(batch, latent_dim, prob, device, miner=None):
     if prob > 0 and random.random() < prob:
         return make_noise(batch, latent_dim, 2, device, miner)
-
     else:
         return [make_noise(batch, latent_dim, 1, device, miner)]
 
@@ -223,8 +220,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         )
 
         if args.wandb:
-            wandb.log(
-                {
+            wandb.log({
                     "Generator": g_loss_val,
                     "Discriminator": d_loss_val,
                     "Augment": ada_aug_p,
@@ -235,8 +231,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     "Real Score": real_score_val,
                     "Fake Score": fake_score_val,
                     "Path Length": path_length_val,
-                }
-            )
+                })
 
         if i % 2000 == 0: #
             fid, _ = evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device, real_acts=real_acts)
