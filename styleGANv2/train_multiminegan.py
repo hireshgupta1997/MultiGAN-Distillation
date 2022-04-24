@@ -75,8 +75,8 @@ def train(args, loader, gen, disc, g_optim, d_optim, g_ema, device, miner, miner
     mean_path_length = 0
 
     d_loss_val = 0
-    r1_loss = torch.tensor(0.0, device=device)
     g_loss_val = 0
+    r1_loss = torch.tensor(0.0, device=device)
     path_loss = torch.tensor(0.0, device=device)
     path_lengths = torch.tensor(0.0, device=device)
     mean_path_length_avg = 0
