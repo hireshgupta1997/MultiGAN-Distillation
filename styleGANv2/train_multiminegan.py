@@ -82,11 +82,6 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
     mean_path_length_avg = 0
     loss_dict = {}
 
-    g_module = generator
-    d_module = discriminator
-    miner_module = miner #
-    miner_semantic_module = miner_semantic #
-
     accum = 0.5 ** (32 / (10 * 1000))
     ada_aug_p = args.augment_p if args.augment_p > 0 else 0.0
     r_t_stat = 0
@@ -201,7 +196,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         loss_dict["path"] = path_loss
         loss_dict["path_length"] = path_lengths.mean()
 
-        accumulate(g_ema, g_module, accum)
+        accumulate(g_ema, generator, accum)
 
         d_loss_val = loss_dict["d"].mean().item()
         g_loss_val = loss_dict["g"].mean().item()
@@ -243,9 +238,9 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     {
                         "miner": miner.state_dict(),
                         "miner_semantic": miner_semantic.state_dict(),
-                        "d": d_module.state_dict(),
-                        "g": g_module.state_dict(),
-                        "d": d_module.state_dict(),
+                        "d": discriminator.state_dict(),
+                        "g": generator.state_dict(),
+                        "d": discriminator.state_dict(),
                         "g_ema": g_ema.state_dict(),
                         "g_optim": g_optim.state_dict(),
                         "d_optim": d_optim.state_dict(),
@@ -281,10 +276,10 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         if i % 100000 == 0: #
             torch.save(
                 {
-                    "miner": miner_module.state_dict(),
-                    "miner_semantic": miner_semantic_module.state_dict(),
-                    "g": g_module.state_dict(),
-                    "d": d_module.state_dict(),
+                    "miner": miner.state_dict(),
+                    "miner_semantic": miner_semantic.state_dict(),
+                    "g": generator.state_dict(),
+                    "d": discriminator.state_dict(),
                     "g_ema": g_ema.state_dict(),
                     "g_optim": g_optim.state_dict(),
                     "d_optim": d_optim.state_dict(),
