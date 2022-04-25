@@ -74,14 +74,10 @@ def train(args, loader, gens, disc, g_optim, d_optim, g_emas, device, miners, mi
 
     loader = sample_data(loader)
 
-    d_loss_val = 0
     r1_loss = torch.tensor(0.0, device=device)
 
-    g_loss_val = 0
-    path_loss = torch.tensor(0.0, device=device)
-    path_lengths = torch.tensor(0.0, device=device)
-    mean_path_length = 0
-    mean_path_length_avg = 0
+    mean_path_length_1 = 0
+    mean_path_length_2 = 0
     loss_dict = {}
 
     accum = 0.5 ** (32 / (10 * 1000)) # 0.9977843871238888
@@ -188,41 +184,53 @@ def train(args, loader, gens, disc, g_optim, d_optim, g_emas, device, miners, mi
             noise = mixing_noise(path_batch_size, args.latent, args.mixing, device)
 
             fake_img_1, latents_1 = gen_1(noise, miner=miner_1, miner_semantic=miner_semantic_1, return_latents=True)
-            # fake_img_2, latents_2 = gen_2(noise, miner=miner_2, miner_semantic=miner_semantic_2, return_latents=True)
+            path_loss_1, mean_path_length_1, path_lengths_1 = g_path_regularize(
+                fake_img_1, latents_1, mean_path_length_1)
+            weighted_path_loss_1 = args.path_regularize * args.g_reg_every * path_loss_1
+            if args.path_batch_shrink:
+                weighted_path_loss_1 += 0 * fake_img_1[0, 0, 0, 0]
 
-            path_loss, mean_path_length, path_lengths = g_path_regularize(
-                fake_img_1, latents_1, mean_path_length)
+            fake_img_2, latents_2 = gen_2(noise, miner=miner_2, miner_semantic=miner_semantic_2, return_latents=True)
+            path_loss_2, mean_path_length_2, path_lengths_2 = g_path_regularize(
+                fake_img_2, latents_2, mean_path_length_2)
+            weighted_path_loss_2 = args.path_regularize * args.g_reg_every * path_loss_2
+            if args.path_batch_shrink:
+                weighted_path_loss_2 += 0 * fake_img_2[0, 0, 0, 0]
 
             gen_1.zero_grad()
-            weighted_path_loss = args.path_regularize * args.g_reg_every * path_loss
+            gen_2.zero_grad()
 
-            if args.path_batch_shrink:
-                weighted_path_loss += 0 * fake_img_1[0, 0, 0, 0]
-
-            weighted_path_loss.backward()
+            weighted_path_loss_1.backward()
+            weighted_path_loss_2.backward()
 
             g_optim.step()
 
-            mean_path_length_avg = mean_path_length.item()
-
-        loss_dict["path"] = path_loss
-        loss_dict["path_length"] = path_lengths.mean()
+        loss_dict["path_1"] = path_loss_1
+        loss_dict["path_length_1"] = path_lengths_1.mean()
+        loss_dict["path_2"] = path_loss_2
+        loss_dict["path_length_2"] = path_lengths_2.mean()
 
         accumulate(g_ema_1, gen_1, accum)
         accumulate(g_ema_2, gen_2, accum)
 
+        # Main Losses
         d_loss_val = loss_dict["d"].mean().item()
         g_loss_val = loss_dict["g"].mean().item()
-        r1_val = loss_dict["r1"].mean().item()
-        path_loss_val = loss_dict["path"].mean().item()
         real_score_val = loss_dict["real_score"].mean().item()
         fake_score_val = loss_dict["fake_score"].mean().item()
-        path_length_val = loss_dict["path_length"].mean().item()
+
+        # Regularization Losses
+        r1_val = loss_dict["r1"].mean().item()
+        path_loss_val_1 = loss_dict["path_1"].mean().item()
+        path_length_val_1 = loss_dict["path_length_1"].mean().item()
+        path_loss_val_2 = loss_dict["path_2"].mean().item()
+        path_length_val_2 = loss_dict["path_length_2"].mean().item()
 
         pbar.set_description(
             (
                 f"d: {d_loss_val:.4f}; g: {g_loss_val:.4f}; r1: {r1_val:.4f}; "
-                f"path: {path_loss_val:.4f}; mean path: {mean_path_length_avg:.4f}; "
+                f"path_1: {path_loss_val_1:.4f}; mean_path_1: {mean_path_length_1.item():.4f}; "
+                f"path_2: {path_loss_val_2:.4f}; mean_path_2: {mean_path_length_2.item():.4f}; "
             )
         )
 
@@ -231,12 +239,15 @@ def train(args, loader, gens, disc, g_optim, d_optim, g_emas, device, miners, mi
             wandb.log({
                     "Generator": g_loss_val,
                     "Discriminator": d_loss_val,
-                    "R1": r1_val,
-                    "Path Length Regularization": path_loss_val,
-                    "Mean Path Length": mean_path_length,
                     "Real Score": real_score_val,
                     "Fake Score": fake_score_val,
-                    "Path Length": path_length_val,
+                    "R1": r1_val,
+                    "Path Length Regularization 1": path_loss_val_1,
+                    "Mean Path Length 1": mean_path_length_1.item(),
+                    "Path Length 1": path_length_val_1,
+                    "Path Length Regularization 2": path_loss_val_2,
+                    "Mean Path Length 2": mean_path_length_2.item(),
+                    "Path Length 2": path_length_val_2
                 })
 
         # if i % 2000 == 0: # Evaluate and save best model, visualizations every 2000 iterations
