@@ -247,7 +247,9 @@ def train(args, loader, gens, disc, g_optim, d_optim, g_emas, device, miners, mi
                     "Path Length 1": path_length_val_1,
                     "Path Length Regularization 2": path_loss_val_2,
                     "Mean Path Length 2": mean_path_length_2.item(),
-                    "Path Length 2": path_length_val_2
+                    "Path Length 2": path_length_val_2,
+                    "Selector Prob 1": selector[0] / selector.sum(),
+                    "Selector Prob 2": selector[1] / selector.sum()
                 })
 
         # if i % 2000 == 0: # Evaluate and save best model, visualizations every 2000 iterations
@@ -272,31 +274,7 @@ def train(args, loader, gens, disc, g_optim, d_optim, g_emas, device, miners, mi
             #     )
             #     best_fid = fid.copy()
 
-            # with torch.no_grad():
-            #     g_ema.eval()
-            #     miner.eval()
-            #     miner_semantic.eval()
-            #     sample, _ = g_ema(miner(sample_z), miner_semantic=miner_semantic)
-            #     utils.save_image(
-            #         g_ema([sample_z])[0],
-            #         '%s/%s_w_o_miner.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6)),
-            #         nrow=int(args.n_sample ** 0.5),
-            #         normalize=True,
-            #         range=(-1, 1),
-            #     )
-            #     utils.save_image(
-            #         sample,
-            #         '%s/%s.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6)),
-            #         nrow=int(args.n_sample ** 0.5),
-            #         normalize=True,
-            #         range=(-1, 1),
-            #     )
-            #     miner.train() #
-            #     miner_semantic.train() #
-
-            #     # f"checkpoint/{str(i).zfill(6)}.pt",
-
-        if i % 1000 == 0: # Save every 1000 iterations
+        if i % 1000 == 0: # Save and visualize every 1000 iterations
             torch.save(
                 {
                     "g_1": gen_1.state_dict(),
@@ -315,6 +293,53 @@ def train(args, loader, gens, disc, g_optim, d_optim, g_emas, device, miners, mi
                 },
                 '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6)),
             )
+
+        if i % 10 == 0: # Visualize every 10 iterations
+            with torch.no_grad():
+                print(selector/selector.sum()*100)
+
+                g_ema_1.eval()
+                miner_1.eval()
+                miner_semantic_1.eval()
+                sample_1, _ = g_ema_1([sample_z], miner=miner_1, miner_semantic=miner_semantic_1)
+                utils.save_image(
+                    sample_1,
+                    '%s/%s.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6) + "_gen_1"),
+                    nrow=int(args.n_sample ** 0.5),
+                    normalize=True,
+                    range=(-1, 1),
+                )
+                utils.save_image(
+                    g_ema_1([sample_z])[0],
+                    '%s/%s_wo_miner.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6) + "_gen_1"),
+                    nrow=int(args.n_sample ** 0.5),
+                    normalize=True,
+                    range=(-1, 1),
+                )
+                miner_1.train()
+                miner_semantic_1.train()
+
+                g_ema_2.eval()
+                miner_2.eval()
+                miner_semantic_2.eval()
+                sample_2, _ = g_ema_2([sample_z], miner=miner_1, miner_semantic=miner_semantic_1)
+                utils.save_image(
+                    sample_2,
+                    '%s/%s.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6) + "_gen_2"),
+                    nrow=int(args.n_sample ** 0.5),
+                    normalize=True,
+                    range=(-1, 1),
+                )
+                utils.save_image(
+                    g_ema_2([sample_z])[0],
+                    '%s/%s_wo_miner.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6) + "_gen_2"),
+                    nrow=int(args.n_sample ** 0.5),
+                    normalize=True,
+                    range=(-1, 1),
+                )
+                miner_2.train()
+                miner_semantic_2.train()
+
 
 
 # def test(args):
