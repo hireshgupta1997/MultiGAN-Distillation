@@ -294,7 +294,7 @@ def train(args, loader, gens, disc, g_optim, d_optim, g_emas, device, miners, mi
                 '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6)),
             )
 
-        if i % 10 == 0: # Visualize every 10 iterations
+        if (i < step_dis and i % 10 == 0) or (i % 1000 == 0): # Visualize every 10 iterations
             with torch.no_grad():
                 print(selector/selector.sum()*100)
 
@@ -443,7 +443,7 @@ def get_args():
     args.start_iter = 0
 
     if args.wandb:
-        wandb.init(project="stylegan 2", entity='gan-gyan')
+        wandb.init(project="multi stylegan 2", entity='gan-gyan')
 
     print(args)
     return args
