@@ -296,32 +296,24 @@ def train(args, loader, gens, disc, g_optim, d_optim, g_emas, device, miners, mi
 
             #     # f"checkpoint/{str(i).zfill(6)}.pt",
 
-        if i % 100000 == 0: # Save every 100000 iterations
+        if i % 1000 == 0: # Save every 1000 iterations
             torch.save(
                 {
-                    "miner": miner_1.state_dict(),
-                    "miner_semantic": miner_semantic_1.state_dict(),
-                    "g": gen_1.state_dict(),
+                    "g_1": gen_1.state_dict(),
+                    "g_ema_1": g_ema_1.state_dict(),
+                    "miner_1": miner_1.state_dict(),
+                    "miner_semantic_1": miner_semantic_1.state_dict(),
+                    "g_2": gen_2.state_dict(),
+                    "g_ema_2": g_ema_2.state_dict(),
+                    "miner_2": miner_2.state_dict(),
+                    "miner_semantic_2": miner_semantic_2.state_dict(),
                     "d": disc.state_dict(),
-                    "g_ema": g_ema_1.state_dict(),
-                    "g_optim": g_optim.state_dict(),
                     "d_optim": d_optim.state_dict(),
-                    "args": args
-                },
-                '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6) + '_g1'),
-            )
-            torch.save(
-                {
-                    "miner": miner_2.state_dict(),
-                    "miner_semantic": miner_semantic_2.state_dict(),
-                    "g": gen_2.state_dict(),
-                    "d": disc.state_dict(),
-                    "g_ema": g_ema_2.state_dict(),
                     "g_optim": g_optim.state_dict(),
-                    "d_optim": d_optim.state_dict(),
-                    "args": args
+                    "args": args,
+                    "selector": selector
                 },
-                '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6) + '_g2'),
+                '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6)),
             )
 
 
