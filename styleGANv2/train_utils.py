@@ -6,6 +6,11 @@ def requires_grad(model, flag=True):
         p.requires_grad = flag
 
 
+def requires_grad_multiple(models, flag=True):
+    for model in models:
+        requires_grad(model, flag)
+
+
 # Utility to calculate moving average of generator weights
 def accumulate(model1, model2, decay=0.999):
     par1 = dict(model1.named_parameters())

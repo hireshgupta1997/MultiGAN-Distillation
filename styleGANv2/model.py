@@ -503,10 +503,14 @@ class Generator(nn.Module):
             input_is_latent=False,
             noise=None,
             randomize_noise=True,
+            miner=None,
             miner_semantic=None,
     ):
         if not input_is_latent:
-            styles = [self.style(s) for s in styles]
+            if miner is None:
+                styles = [self.style(s) for s in styles]
+            else:
+                styles = [self.style(miner(s)[0]) for s in styles]
 
         if noise is None:
             if randomize_noise:
