@@ -8,7 +8,8 @@ def requires_grad(model, flag=True):
 
 def requires_grad_multiple(models, flag=True):
     for model in models:
-        requires_grad(model, flag)
+        if model is not None:
+            requires_grad(model, flag)
 
 
 # Utility to calculate moving average of generator weights
