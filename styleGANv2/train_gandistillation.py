@@ -6,6 +6,11 @@ import numpy as np
 import torch
 import wandb
 from torch import nn, optim
+import json
+
+torch.manual_seed(42)
+random.seed(42)
+np.random.seed(42)
 
 from torch.utils import data
 from torchvision import transforms, utils
@@ -18,7 +23,7 @@ from model import Generator, Discriminator, Miner, MinerSemanticConv
 from dataset import MultiResolutionDataset
 
 from loss_utils import d_logistic_loss, d_r1_loss, g_nonsaturating_loss, g_path_regularize
-from train_utils import requires_grad, requires_grad_multiple, accumulate, data_sampler, sample_data
+from train_utils import accumulate, data_sampler, sample_data
 
 
 # def evaluate(args, g_ema, inception, miner, miner_semantic, loader_test, device, real_acts=None):
@@ -108,6 +113,12 @@ def train(args, loader, gen_target, disc_target, g_optim, d_optim, g_ema_1, devi
     g_ema_1.eval()
     gen_target.train()
 
+    # Debug 1: Overfit on 20 sample_z
+    # sample_z = torch.randn(args.n_sample, args.latent, device=device)  # -> sent to the two generators
+
+    # Debug 2, 3: Overfit on 1000 samples
+    sample_z_collection = torch.randn(1000, args.latent, device=device)  # -> sent to the two generators
+
     pbar = range(args.iter)
     pbar = tqdm(pbar, initial=0, dynamic_ncols=True, smoothing=0.01)
     for i in pbar:
@@ -117,7 +128,11 @@ def train(args, loader, gen_target, disc_target, g_optim, d_optim, g_ema_1, devi
         g_ema_1.eval()
 
         # 2. Sample random z
-        sample_z = torch.randn(args.n_sample, args.latent, device=device)  # -> sent to the two generators
+        # sample_z = torch.randn(args.n_sample, args.latent, device=device)  # -> sent to the two generators
+
+        # Debug 2, 3: sample from 1000 z values
+        perm = torch.randperm(1000)
+        sample_z = sample_z_collection[perm[:args.n_sample]]
 
         # 3 (a). Get real images from source GANs
         with torch.no_grad():
@@ -126,30 +141,27 @@ def train(args, loader, gen_target, disc_target, g_optim, d_optim, g_ema_1, devi
         # 3 (b). Get fake image from target GAN
         fake_img, _ = gen_target([sample_z], miner=None, miner_semantic=miner_semantic_1)  # (2 * n_sample, 3, H, W)
 
-        # 4. Set requires grad
-        requires_grad_multiple([gen_target, miner_semantic_1], True)
-        
-        # 5 (a). Compute L2 Loss
+        # 4 (a). Compute L2 Loss
         g_loss_l2 = compute_loss(fake_img, real_img.detach(), mode='l2')
 
-        # 5 (b). Compute Perceptual Loss
+        # 4 (b). Compute Perceptual Loss
         perceptual_lambda = get_perceptual_lambda(args, current_iter=i, max_iter=args.iter)
         if perceptual_lambda > 0:
             g_loss_perceptual = compute_loss(fake_img, real_img.detach(), mode='perceptual', inception=inception)
         else:
             g_loss_perceptual = 0
 
-        # 6. Combine all losses
+        # 5. Combine all losses
         g_loss = g_loss_l2 + perceptual_lambda * g_loss_perceptual
 
-        # 7. Set zero grad & Backprop
+        # 6. Set zero grad & Backprop
         g_optim.zero_grad()
         # Use if discriminator is used
         # d_optim.zero_grad()
         g_loss.backward()
         g_optim.step()
 
-        # 8. Log to wandb
+        # 7. Log to wandb
         if args.wandb:
             wandb.log({
                 "g_loss": g_loss,
@@ -158,7 +170,7 @@ def train(args, loader, gen_target, disc_target, g_optim, d_optim, g_ema_1, devi
                 "perceptual_lambda": perceptual_lambda
             })
 
-        # 9. Generate sample outputs
+        # 8. Generate sample outputs
         if i % 1000 == 0: # Save and visualize every 1000 iterations
             torch.save(
                 {
@@ -250,10 +262,13 @@ def get_args():
     args.n_mlp = 8
     args.start_iter = 0
 
-    if args.wandb:
-        wandb.init(project="multi stylegan 2", entity='gan-gyan')
+    basename = os.path.basename(args.output_dir)
 
-    print(args)
+    if args.wandb:
+        wandb.init(project="multi stylegan 2", entity="gan-gyan", name=basename)
+
+    # print(args)
+    print(json.dumps(args.__dict__, indent=2))
     return args
 
 
@@ -265,8 +280,15 @@ if __name__ == "__main__":
     g_ema_1 = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
     g_ema_1.eval()
 
+    # Load Pre-trained weights
+    load_model(args.ckpt_1, g_ema_1)
+
     # Instantiate Target Generator and Discriminator
     gen_target = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
+
+    # Debug 4: Setting constant input from g_ema
+    gen_target.input.input.requires_grad_(False)
+    gen_target.input.input.data = g_ema_1.input.input.data
     
     # Instantiate miner semantic if needed
     miner_semantic_1 = None
@@ -298,10 +320,6 @@ if __name__ == "__main__":
     #     betas=(0 ** d_reg_ratio, 0.99 ** d_reg_ratio),
     # )
 
-    # Load Pre-trained weights
-    # If discriminator weights found in both checkpoints, we load from second checkpoint
-    load_model(args.ckpt_1, g_ema_1)
-
     # Setup datasets and data loaders
     # transform = transforms.Compose([
     #         transforms.RandomHorizontalFlip(),
@@ -321,8 +339,8 @@ if __name__ == "__main__":
         # train(args, loader, [gen_1, gen_2], disc, g_optim, d_optim, [g_ema_1, g_ema_2],
         #       device, [miner_1, miner_2], [miner_semantic_1, miner_semantic_2],
         #       inception, loader_test)
-        train(args, None, gen_target, disc_target, g_optim, None, g_ema_1,
-              device, miner_semantic_1, inception, None)
+        # train(args, None, gen_target, disc_target, g_optim, None, g_ema_1,
+        #       device, miner_semantic_1, inception, None)
         train(args, loader=None, gen_target=gen_target, disc_target=disc_target, 
               g_optim=g_optim, d_optim=d_optim, 
               g_ema_1=g_ema_1, device=device, 
