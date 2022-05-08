@@ -101,7 +101,7 @@ def train(args, gen_target, g_optim, g_emas, inception, num_ws=1000):
         fake_img, fake_w = gen_target([input_w], miner=None, miner_semantic=None,
                                       input_is_latent=True, return_latents=True)  # (2 * n_sample, 3, H, W)
 
-        assert (fake_w != input_w).sum() == 0
+        assert (fake_w[:,0,:] != input_w).sum() == 0
 
         # 4 (a). Compute L2 Loss
         g_loss_l2 = compute_loss(fake_img, real_img.detach(), mode='l2')
@@ -148,7 +148,7 @@ def train(args, gen_target, g_optim, g_emas, inception, num_ws=1000):
                 '%s/%s.pt' % (os.path.join(args.output_dir, 'checkpoint'), str(i).zfill(6)),
             )
 
-        if (i % 100 == 0): # Visualize every 100 iterations
+        if ((i-gen_ind) % 100 == 0): # Visualize every 100 iterations
             utils.save_image(
                 real_img,
                 '%s/%s.png' % (os.path.join(args.output_dir, 'samples'), str(i).zfill(6) + f"_real_{gen_ind}"),
