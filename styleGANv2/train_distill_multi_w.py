@@ -62,7 +62,7 @@ def get_perceptual_lambda(args, current_iter, max_iter, strategy='constant'):
         raise NotImplementedError(f'Not implemented for strategy {strategy}')
 
 
-def train(args, gen_target, g_optim, g_emas, inception, num_ws=1000):
+def train(args, gen_target, g_optim, g_emas, inception, num_ws=1000, ckpt_target_path=None):
     num_gens = len(g_emas)
     for g_ema in g_emas:
         g_ema.eval()
@@ -73,6 +73,13 @@ def train(args, gen_target, g_optim, g_emas, inception, num_ws=1000):
 
     scales = nn.Parameter(torch.randn(num_gens, args.latent)).requires_grad_(True).to(device)
     shifts = nn.Parameter(torch.randn(num_gens, args.latent)).requires_grad_(True).to(device)
+
+    if ckpt_target_path is not None:
+        ckpt = torch.load(ckpt_target_path, map_location=lambda storage, loc: storage)
+        scales.data = ckpt['scales'].data
+        shifts.data = ckpt['shifts'].data
+        gen_target.load_state_dict(ckpt['gen_target'], strict=False)
+
 
     sample_z_collection = torch.randn(num_ws, args.latent, device=device)  # -> sent to the two generators
     torch.save(sample_z_collection, os.path.join(args.output_dir, 'sample_z_collection.pt'))
@@ -202,12 +209,14 @@ def get_args():
     parser.add_argument("--mixing", type=float, default=0.0, help="probability of latent code mixing")
     parser.add_argument("--ckpt_1", type=str, default=None, help="path to the checkpoints to resume training")
     parser.add_argument("--ckpt_2", type=str, default=None, help="path to the checkpoints to resume training")
+    parser.add_argument("--ckpt_target", type=str, default=None, help="path to the checkpoints to resume training")
     parser.add_argument("--output_dir", type=str, default=None, help="path to save the generatd image and  model")
     parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
     parser.add_argument("--channel_multiplier", type=int, default=2, help="channel multiplier factor for the model. config-f = 2, else = 1")
     parser.add_argument("--wandb", action="store_true", help="use weights and biases logging")
     parser.add_argument("--infer_only", action='store_true', help="use this flag to only infer and not train")
     parser.add_argument("--perceptual_lambda", type=float, default=0.0, help="weightage given to perceptual loss")
+    parser.add_argument("--num_ws", type=int, default=1000)
 
     args = parser.parse_args()
 
@@ -271,4 +280,5 @@ if __name__ == "__main__":
         pass
         # test(args)
     else:
-        train(args, gen_target=gen_target, g_optim=g_optim, g_emas=[g_ema_1, g_ema_2], inception=inception)
+        train(args, gen_target=gen_target, g_optim=g_optim, g_emas=[g_ema_1, g_ema_2], inception=inception,
+              num_ws=args.num_ws, ckpt_target_path=args.ckpt_target)
