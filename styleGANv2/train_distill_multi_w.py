@@ -71,8 +71,12 @@ def train(args, gen_target, g_optim, g_emas, inception, num_ws=1000, ckpt_target
     for g_ema in g_emas:
         truncation_latents.append(g_ema.mean_latent(n_latent=1024))
 
-    scales = nn.Parameter(torch.randn(num_gens, args.latent)).requires_grad_(True).to(device)
-    shifts = nn.Parameter(torch.randn(num_gens, args.latent)).requires_grad_(True).to(device)
+    scales = nn.Parameter(torch.randn(num_gens, args.latent))
+    shifts = nn.Parameter(torch.randn(num_gens, args.latent))
+    g_optim.add_param_group({
+        'params': [scales, shifts],
+        'lr': args.lr
+    })
 
     if ckpt_target_path is not None:
         ckpt = torch.load(ckpt_target_path, map_location=lambda storage, loc: storage)
@@ -80,6 +84,8 @@ def train(args, gen_target, g_optim, g_emas, inception, num_ws=1000, ckpt_target
         shifts.data = ckpt['shifts'].data
         gen_target.load_state_dict(ckpt['gen_target'], strict=False)
 
+    scales = scales.to(device)
+    shifts = shifts.to(device)
 
     sample_z_collection = torch.randn(num_ws, args.latent, device=device)  # -> sent to the two generators
     torch.save(sample_z_collection, os.path.join(args.output_dir, 'sample_z_collection.pt'))
