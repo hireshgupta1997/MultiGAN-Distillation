@@ -45,8 +45,8 @@ def compute_loss(preds, targets, inception=None, mode='l2'):
         assert inception is not None, "inception model must be provided if mode=='perceptual'"
         inception.eval()
         b = preds.shape[0]
-        act_preds = inception(preds).reshape(b, -1)
-        act_targets = inception(targets).reshape(b, -1)
+        act_preds = inception(preds)[0].reshape(b, -1)
+        act_targets = inception(targets)[0].reshape(b, -1)
         perceptual_loss = ((act_preds - act_targets) ** 2).mean()
         return perceptual_loss
     else:
@@ -251,9 +251,11 @@ if __name__ == "__main__":
     d_optim = None
 
     # Initialize if using perceptual loss
-    inception=None
-    # inception = InceptionV3().cuda()
-    # inception.eval()
+    if args.perceptual_lambda > 0:
+        inception = InceptionV3().cuda()
+        inception.eval()
+    else:
+        inception=None
 
     if args.infer_only:
         pass
