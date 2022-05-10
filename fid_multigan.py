@@ -117,16 +117,16 @@ if __name__ == "__main__":
     ckpt = torch.load(args.ckpt)
 
     g = Generator(args.size, 512, 8).to(device)
-    g.load_state_dict(ckpt["g_ema"])
+    g.load_state_dict(ckpt["g_ema_1"])
     g = nn.DataParallel(g)
     g.eval()
 
-    if "miner" in ckpt:
+    if "miner_1" in ckpt:
         miner = Miner(512).to(device)
-        miner.load_state_dict(ckpt["miner"])
+        miner.load_state_dict(ckpt["miner_1"])
 
         miner_semantic = MinerSemanticConv(code_dim=8, style_dim=512).to(device)
-        miner_semantic.load_state_dict(ckpt["miner_semantic"])
+        miner_semantic.load_state_dict(ckpt["miner_semantic_1"])
         miner.eval()
         miner_semantic.eval()
 

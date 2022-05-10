@@ -2,16 +2,49 @@
 
 This codebase is inspired from the [unofficial StyleGANv2](https://github.com/rosinality/stylegan2-pytorch) and [MineGAN](https://github.com/yaxingwang/MineGAN) repositories.
 
-<!-- ### Preprocess datasets
+### Preprocess dataset
+
 ```
-python prepare_data.py  data/CatHead --out data/CatHead_lmdb --size 256
-``` -->
+python prepare_data.py  <path_of_folder_to_images> --out <lmdb_path> --size 256
+```
 
-<!-- ### Download pre-traind GAN models
-This pretrained model is  [unoffical StyleGANv2 one](https://drive.google.com/file/d/1PQutd-JboOCOZqmd95XWxWrO8gGEvRcO/view), please cite this [repository](https://github.com/rosinality/stylegan2-pytorch) if you use the pretrained model. Given the downloaded pretrained model, we can creat new folder(e.g. 'model'), and move the downloaded model into this folder. 
- -->
+## Learning with Limited Data
 
-### Run experiments
+### StyleGAN finetuning
+```
+python train.py --size 256 --batch 8 --iter 100000 --ckpt <pretrained_model_path> --output_dir <save_dir> --wandb <lmdb_path>
+```
+
+### SingleGAN training (with miner)
+```
+python train_minegan.py --size 256 --batch 8 --iter 100000 --ckpt <pretrained_model_path> --output_dir <save_dir> --wandb <lmdb_path>
+```
+
+### Multi-GAN training
+```
+python train_multiminegan.py --test_number 160 --batch 8 --size 256 --channel_multiplier 2 --ckpt_1 <CKPT_1> --ckpt_2 <CKPT_2> --output_dir <OUTPUT_DIR> <TRAIN_DATA> <TEST_DATA> --wandb
+```
+
+### Visualize Results
+```
+python generate.py --sample 32 --pics 10 --ckpt <ckpt_path> --out_dir <output_dir>
+```
+
+### Save Inception features
+```
+python calc_inception.py --size 256 --batch 1 --n_sample 150 <lmdb_path>
+```
+
+### FID evaluation
+```
+# Single GAN (works with StyleGAN & StyleGAN with miner)
+python fid.py --batch 20 --n_sample 50000 --inception <inception_feature_path> <checkpoint_path>
+
+# Multi GAN evaluation
+python fid_multigan.py --batch 20 --n_sample 50000 --inception <inception_feature_path> <checkpoint_path>
+```
+
+## Learning with No Data
 
 #### Single gan distillation on 1000 ws
 ```
